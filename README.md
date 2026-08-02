@@ -2,7 +2,7 @@
 
 # 🔥 WhatsHot API
 
-**统一聚合热榜、实时快讯、金价与 RSS 数据，并提供稳定、易于消费的 API。**
+**统一聚合热榜、实时快讯、金价与 RSS 数据，并通过 🌐 API、⌨️ CLI 和 🤖 MCP 提供稳定、易于消费的访问方式。**
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
@@ -13,7 +13,7 @@
 
 </div>
 
-## 项目简介
+## ✨ 项目简介
 
 WhatsHot API 是一个基于 Python 与 FastAPI 构建的开源数据聚合服务，核心覆盖
 **热榜、实时快讯和金价**。它将不同来源的数据抓取、解析并归一化为一致的
@@ -24,31 +24,31 @@ WhatsHot API 是一个基于 Python 与 FastAPI 构建的开源数据聚合服�
 金价与 RSS/RSSHub 聚合内容。它既可以作为独立 API 服务运行，也可以通过
 App Factory 作为核心库嵌入其他 FastAPI 项目。
 
-```text
-热榜 / 快讯 / 金价 / RSS
-          ↓
-   自动发现的路由适配器
-          ↓
-异步请求 · 双层缓存 · 数据归一化
-          ↓
-       JSON / RSS 2.0
+```mermaid
+flowchart TD
+    sources["🔥 热榜 · 📰 快讯 · 🪙 金价 · 📡 RSS / RSSHub"]
+    adapters["🧭 自动发现的路由适配器"]
+    pipeline["⚡ 异步请求<br/>🗄️ 双层缓存<br/>✨ 数据归一化"]
+    output["📦 JSON API · 📡 RSS 2.0"]
+
+    sources --> adapters --> pipeline --> output
 ```
 
-## 核心功能
+## 🌟 核心功能
 
 | 功能 | 说明 |
 | --- | --- |
-| 多类型内容聚合 | 统一处理热榜、实时快讯、金价与 RSS/RSSHub 来源 |
-| 路由自动发现 | 自动扫描分类目录，新增适配器无需手动登记路由 |
-| 异步请求 | 基于 `httpx` 的异步 HTTP 客户端，支持 HTTP/2 与按域名代理 |
-| 只读缓存模式 | 可强制只读缓存，未命中时直接返回，不向上游发起请求 |
-| JSON / RSS 输出 | 同一数据端点可输出 JSON，也可按需生成 RSS 2.0 |
-| OpenCLI 风格 CLI | 通过 `whatshot <site> <type>` 读取任意已注册来源，支持 7 种输出格式 |
-| DuckDB 历史库 | 可选的本地分析数据库，支持历史查询、搜索和趋势分析 |
-| 轻量 Scheduler | 只抓取用户显式订阅的站点和 board，负责全部历史写入 |
-| MCP v2 | 提供 stdio 和 Streamable HTTP，只暴露结构化只读工具 |
+| 🗂️ 多类型内容聚合 | 统一处理热榜、实时快讯、金价与 RSS/RSSHub 来源 |
+| 🧭 路由自动发现 | 自动扫描分类目录，新增适配器无需手动登记路由 |
+| ⚡ 异步请求 | 基于 `httpx` 的异步 HTTP 客户端，支持 HTTP/2 与按域名代理 |
+| 🗄️ 只读缓存模式 | 可强制只读缓存，未命中时直接返回，不向上游发起请求 |
+| 📡 JSON / RSS 输出 | 同一数据端点可输出 JSON，也可按需生成 RSS 2.0 |
+| ⌨️ OpenCLI 风格 CLI | 通过 `whatshot <site> <type>` 读取任意已注册来源，支持 7 种输出格式 |
+| 🦆 DuckDB 历史库 | 可选的本地分析数据库，支持历史查询、搜索和趋势分析 |
+| ⏱️ 轻量 Scheduler | 只抓取用户显式订阅的站点和 board，负责全部历史写入 |
+| 🤖 MCP v2 | 提供 stdio 和 Streamable HTTP，只暴露结构化只读工具 |
 
-## 运行进程与端口
+## 🧩 运行进程与端口
 
 WhatsHot 有两个可以独立启动的进程，分别承担无状态 API 和有状态数据能力：
 
@@ -61,18 +61,18 @@ WhatsHot 有两个可以独立启动的进程，分别承担无状态 API 和有
 
 | 使用场景 | 启动 `6688` | 启动 `6690` |
 | --- | --- | --- |
-| 只通过 HTTP 调用实时热榜、快讯或 RSS | 是 | 否 |
-| 只使用 CLI 获取实时数据 | 否 | 否 |
-| 使用定时采集或历史查询 | 否 | 是 |
-| 使用 MCP 实时或历史工具 | 否 | 是 |
-| 同时对外提供 API，并使用历史数据或 MCP | 是 | 是 |
+| 只通过 HTTP 调用实时热榜、快讯或 RSS | ✅ | ❌ |
+| 只使用 CLI 获取实时数据 | ❌ | ❌ |
+| 使用定时采集或历史查询 | ❌ | ✅ |
+| 使用 MCP 实时或历史工具 | ❌ | ✅ |
+| 同时对外提供 API，并使用历史数据或 MCP | ✅ | ✅ |
 
 Scheduler 和 MCP 的实时抓取直接复用项目内部 Fetch Service，不会通过
 `6688` 转发，因此使用 `6690` 时不需要额外启动 Core API。反过来，只启动
 `6688` 也不会创建 DuckDB 或启动 Scheduler。`6690` 是本地控制端口，默认
 只绑定 `127.0.0.1`，不应直接暴露到公网。
 
-## 基本使用
+## 🚀 基本使用
 
 基本模式只运行聚合 API：不连接 Redis、不保存历史数据，也不启动
 Scheduler、DuckDB 或 MCP。下面的请求使用 `cache=false`，每次都会实时访问
@@ -166,7 +166,7 @@ curl "http://127.0.0.1:6688/weibo/hot?limit=10&cache=false"
 
 其中，条目级 `timestamp` 统一为 Unix 毫秒时间戳；响应级 `updateTime` 为本次榜单数据的刷新时间。
 
-## 进阶使用
+## 🛠️ 进阶使用
 
 进阶能力按需开启。API 进程和 daemon 使用不同的配置文件，修改后需要重启
 对应进程：
