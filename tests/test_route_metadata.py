@@ -44,6 +44,21 @@ async def test_metadata_no_param_route(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("route_name", ["weibo", "baidu"])
+async def test_metadata_trailing_slash_is_direct_alias(
+    client: AsyncClient,
+    route_name: str,
+):
+    canonical = await client.get(f"/{route_name}")
+    alias = await client.get(f"/{route_name}/", follow_redirects=False)
+
+    assert canonical.status_code == 200
+    assert alias.status_code == 200
+    assert "location" not in alias.headers
+    assert alias.json() == canonical.json()
+
+
+@pytest.mark.asyncio
 async def test_metadata_type_param_route(client: AsyncClient):
     resp = await client.get("/bilibili")
     assert resp.status_code == 200
@@ -118,9 +133,12 @@ async def test_metadata_does_not_call_handler():
     sub = FastAPI()
     sub.include_router(router)
     async with AsyncClient(transport=ASGITransport(app=sub), base_url="http://test") as c:
-        resp = await c.get(f"/{route_name}")
-    assert resp.status_code == 200
-    assert resp.json()["types"] == ["hot"]
+        canonical = await c.get(f"/{route_name}")
+        alias = await c.get(f"/{route_name}/", follow_redirects=False)
+    assert canonical.status_code == 200
+    assert canonical.json()["types"] == ["hot"]
+    assert alias.status_code == 200
+    assert alias.json() == canonical.json()
     assert called is False
 
 

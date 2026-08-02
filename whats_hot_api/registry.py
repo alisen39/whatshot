@@ -224,7 +224,14 @@ def _register_route(
     # late-binding). Captures are NOT declared as function params — FastAPI would
     # otherwise treat typed scalars/dicts (str, dict) as query/body params.
 
-    # (1) Metadata endpoint — cheap, does not call handle_route.
+    # (1) Metadata endpoint — cheap, does not call handle_route.  Keep the
+    # trailing-slash form as a direct compatibility alias so API clients that
+    # do not follow redirects still receive the metadata response.
+    @router.get(
+        f"/{route_name}/",
+        name=f"{route_name}:metadata:trailing-slash",
+        include_in_schema=False,
+    )
     @router.get(f"/{route_name}", name=route_name)
     async def metadata_route_handler() -> JSONResponse:
         return JSONResponse(_build_metadata_response(route_name, meta))
