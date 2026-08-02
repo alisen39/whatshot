@@ -1,0 +1,247 @@
+"""核心数据模型 —— 热榜 / 快讯 / 金价条目与路由响应。
+
+数据标准（硬规则，新增路由/字段必须遵守）
+========================================
+
+时间单位
+--------
+所有条目的 ``timestamp`` 字段统一为 **Unix 毫秒级整数**（13 位，如 ``1783231621000``）。
+- 上游若给出秒级（10 位），由 ``coerce_timestamp`` 校验器自动补齐到毫秒（× 1000）。
+- 路由层产出时间应优先调用 ``whats_hot_api.utils.get_time.get_time()``，它会统一返回毫秒；
+  models 层的校验器是最后一道防线，兜底归一化任何漏网的秒级输入。
+- 判断阈值为 ``1_000_000_000_000``（10^12，约 2001-09 的毫秒值），与前端
+  ``normalizeTimestampMs``、扩展包 ``hot_fetcher._timestamp_to_datetime`` 三处对齐。
+
+注意区分两套时间字段（单位不同，切勿混淆）：
+- 条目级 ``timestamp``：int，毫秒，表示该条内容的**发布时间**。
+- 响应级 ``updateTime``：str，ISO 8601 字符串，表示**本次数据的刷新时间**
+  （route handler 成功取得整张榜单的时间）。
+
+字段必填规则
+------------
+每个 data class 用行内注释 ``# 必填`` / ``# 选填`` 标注。
+- 必填：路由必须提供，缺失即校验失败。
+- 选填：可不提供，取默认值（通常为 ``None`` / 空集合）。
+"""
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+ContentKind = Literal["hotlist", "newsflash", "gold"]
+ContentStatus = Literal["full", "summary", "truncated"]
+
+# 秒/毫秒判断阈值：小于此值视为秒级，×1000 补齐为毫秒。
+# 取 10^12（约 2001-09 的毫秒值），与前端 normalizeTimestampMs、扩展包 hot_fetcher 对齐。
+_MS_THRESHOLD = 1_000_000_000_000
+
+
+def _coerce_timestamp_ms(value: object) -> int | None:
+    """把任意时间值归一化为 Unix 毫秒级整数；无效则返回 None。
+
+    - 字符串/浮点先转 int（"1783231621" → 1783231621）。
+    - 秒级（< 10^12）× 1000 补齐为毫秒。
+    - 毫秒级（≥ 10^12）原样保留。
+    - 非正数或无法解析的值返回 None。
+    """
+    if not value:
+        return None
+    try:
+        val = int(round(float(value)))
+    except (ValueError, TypeError):
+        return None
+    if val <= 0:
+        return None
+    return val * 1000 if val < _MS_THRESHOLD else val
+
+
+class ListItem(BaseModel):
+    """热榜 / 榜单类条目（对应 ``kind="hotlist"``）。
+
+    用于微博、知乎、B 站、GitHub 等榜单站点。一个榜单条目至少要有标题和可跳转链接；
+    热度、封面、作者、发布时间为可选增强信息。
+    """
+
+    id: str  # 必填：条目唯一标识，自动 str() 强转
+    title: str  # 必填：标题
+    url: str  # 必填：PC 端链接
+    mobileUrl: str | None = None  # 选填：移动端链接
+    hot: int | None = None  # 选填：热度值，自动 int()
+    cover: str | None = None  # 选填：封面图 URL
+    author: str | None = None  # 选填：作者 / UP主
+    desc: str | None = None  # 选填：描述 / 摘要
+    timestamp: int | None = None  # 选填：发布时间，Unix 毫秒级整数
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def coerce_id(cls, v: object) -> str:
+        return str(v)
+
+    @field_validator("hot", mode="before")
+    @classmethod
+    def coerce_hot(cls, v: object) -> int | None:
+        if v is None:
+            return None
+        try:
+            return int(round(float(v)))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def coerce_timestamp(cls, v: object) -> int | None:
+        return _coerce_timestamp_ms(v)
+
+    @field_validator("cover", "author", "desc", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+
+class GoldItem(BaseModel):
+    """金价类条目（对应 ``kind="gold"``）。
+
+    金价不是热度榜单，价格字段不应借用 ``ListItem.hot`` 表达。销售价与回收价均允许
+    暂时缺失，以兼容上游只提供其中一种价格的品类。
+    """
+
+    id: str  # 必填：条目唯一标识，自动 str() 强转
+    title: str  # 必填：黄金 / 贵金属品类名称
+    url: str  # 必填：PC 端链接
+    mobileUrl: str | None = None  # 选填：移动端链接
+    sellPrice: int | None = None  # 选填：销售价（元/克）
+    recyclePrice: int | None = None  # 选填：回收价（元/克）
+    desc: str | None = None  # 选填：面向展示的价格说明
+    timestamp: int | None = None  # 选填：价格日期，Unix 毫秒级整数
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def coerce_id(cls, v: object) -> str:
+        return str(v)
+
+    @field_validator("sellPrice", "recyclePrice", mode="before")
+    @classmethod
+    def coerce_price(cls, v: object) -> int | None:
+        if v is None:
+            return None
+        try:
+            return int(round(float(v)))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def coerce_timestamp(cls, v: object) -> int | None:
+        return _coerce_timestamp_ms(v)
+
+    @field_validator("desc", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+
+class NewsFlashItem(BaseModel):
+    """快讯类条目（对应 ``kind="newsflash"``）。
+
+    用于东方财富、华尔街见闻、财联社等 7×24 财经快讯站点。与 ListItem 的核心区别：
+    - 必须有正文 ``content``（不只是标题）；
+    - 有正文状态 ``contentStatus``（full/summary/truncated）表征正文完整性；
+    - 有来源、标签、关联标的、指标等结构化增强字段。
+    """
+
+    id: str  # 必填：条目唯一标识，自动 str() 强转
+    title: str  # 必填：标题
+    content: str  # 必填：正文
+    url: str  # 必填：PC 端链接
+    mobileUrl: str | None = None  # 选填：移动端链接
+    summary: str | None = None  # 选填：摘要（区别于正文 content）
+    contentStatus: ContentStatus = "full"  # 选填：正文状态，默认完整
+    source: str | None = None  # 选填：来源
+    isImportant: bool = False  # 选填：是否重要，默认否
+    tags: list[str] = Field(default_factory=list)  # 选填：标签列表
+    images: list[str] = Field(default_factory=list)  # 选填：图片 URL 列表
+    symbols: list[dict[str, Any]] = Field(default_factory=list)  # 选填：关联标的（股票/币种等）
+    metrics: dict[str, Any] = Field(default_factory=dict)  # 选填：指标数据
+    timestamp: int | None = None  # 选填：发布时间，Unix 毫秒级整数
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def coerce_id(cls, v: object) -> str:
+        return str(v)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def coerce_timestamp(cls, v: object) -> int | None:
+        return _coerce_timestamp_ms(v)
+
+    @field_validator("summary", "source", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @field_validator("tags", "images", "symbols", mode="before")
+    @classmethod
+    def none_to_list(cls, v: object) -> object:
+        return [] if v is None else v
+
+    @field_validator("metrics", mode="before")
+    @classmethod
+    def none_to_dict(cls, v: object) -> object:
+        return {} if v is None else v
+
+
+DataItem = NewsFlashItem | ListItem | GoldItem
+
+
+class RouterData(BaseModel):
+    """单次路由抓取的结果（内部传递 + 直接序列化为 API 响应体）。
+
+    ``kind`` 决定 ``data`` 列表里条目的类型：``hotlist`` → ListItem，
+    ``newsflash`` → NewsFlashItem，``gold`` → GoldItem。
+    """
+
+    kind: ContentKind = "hotlist"
+    name: str  # 必填：路由名（站点标识，如 "weibo"）
+    title: str  # 必填：站点中文名
+    type: str  # 必填：榜单 / 快讯类型标签
+    description: str | None = None  # 选填：描述
+    params: dict | None = None  # 选填：可用参数说明
+    link: str | None = None  # 选填：站点主页
+    total: int  # 必填：条目总数
+    fromCache: bool  # 必填：本次结果是否来自缓存
+    updateTime: str  # 必填：本次数据刷新时间，ISO 8601 字符串（注意：非毫秒）
+    data: list[DataItem]  # 必填：条目列表
+    message: str | None = None  # 选填：附加信息
+
+
+class ApiResponse(BaseModel):
+    """对外 API 响应的宽松容器（所有字段可选，便于部分填充）。
+
+    与 RouterData 字段对应，但允许省略任意字段，用于缓存命中 / 异常等场景的部分响应。
+    """
+
+    code: int = 200
+    kind: ContentKind | None = None
+    name: str | None = None
+    title: str | None = None
+    type: str | None = None
+    description: str | None = None
+    params: dict | None = None
+    link: str | None = None
+    total: int | None = None
+    fromCache: bool | None = None
+    updateTime: str | None = None  # 选填：ISO 8601 字符串，本次数据刷新时间
+    data: list[DataItem] | None = None
+    message: str | None = None
+
+
+class RouteInfo(BaseModel):
+    name: str
+    path: str | None = None
+    message: str | None = None

@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Logs
+logs/
+
+# Environment
+.env
+/config.toml
+
+# Local history databases
+*.duckdb
+*.duckdb.wal
+/data/*
+!/data/.gitkeep
+
+# Generated analysis artifacts
+output/
+
+# macOS
+.DS_Store

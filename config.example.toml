@@ -1,0 +1,37 @@
+[daemon]
+bind = "127.0.0.1"
+port = 6690
+state_path = "data/state"
+
+[storage]
+enabled = true
+path = "data/whatshot.duckdb"
+retention_days = 180
+query_timeout_seconds = 5
+checkpoint_on_shutdown = true
+
+[scheduler]
+enabled = true
+max_fetch_concurrency = 4
+writer_queue_size = 32
+jitter_seconds = 15
+request_timeout_seconds = 30
+shutdown_grace_seconds = 30
+
+# 默认不采集任何站点。需要保存数据时，在文件末尾增加：
+#
+# [[scheduler.jobs]]
+# id = "weibo-hot"
+# site = "weibo"
+# type = "hot"
+# interval = "10m"
+# limit = 50
+# enabled = true
+# run_on_start = true
+
+[mcp]
+enabled = true
+streamable_http_path = "/mcp"
+max_result_items = 200
+default_history_days = 7
+max_history_days = 365
