@@ -1,8 +1,10 @@
 <div align="center">
 
-# 🔥 WhatsHot API
+# 🔥 WhatsHot·什么火了
 
-**统一聚合热榜、实时快讯、金价与 RSS 数据，并通过 🌐 API、⌨️ CLI 和 🤖 MCP 提供稳定、易于消费的访问方式。**
+⚡A fast, extensible FastAPI service that aggregates trending topics, real-time news flashes, gold prices, and RSS feeds from 330+ sources—available via API, MCP, and CLI.
+
+**聚合全网热榜、实时快讯、金价，并通过 API、CLI 和 MCP 支持，便人类和AI使用！**
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
