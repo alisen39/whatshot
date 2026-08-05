@@ -14,6 +14,12 @@ ROUTE_META: dict = {
     "title": 'OpenRouter Announcements',
     "description": 'OpenRouter model and API announcements.',
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"announcements": "官方公告"},
+        }
+    },
 }
 
 
@@ -21,7 +27,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData: 
     list_data = await _get_list(no_cache)
     return RouterData(
         **ROUTE_META,
-        type="RSS",
+        type="官方公告",
         total=len(list_data["data"]),
         fromCache=list_data["from_cache"],
         updateTime=list_data["update_time"],

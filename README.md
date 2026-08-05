@@ -4,7 +4,7 @@
 
 ⚡A fast, extensible FastAPI service that aggregates trending topics, real-time news flashes, gold prices, and RSS feeds from 330+ sources—available via API, MCP, and CLI.
 
-**聚合全网热榜、实时快讯、金价，并通过 API、CLI 和 MCP 支持，便人类和AI使用！**
+**聚合全网热榜、实时快讯、金价，并提供 API、CLI 和 MCP 支持，方便人类和AI使用！**
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
@@ -28,7 +28,7 @@ App Factory 作为核心库嵌入其他 FastAPI 项目。
 
 ```mermaid
 flowchart TD
-    sources["🔥 热榜 · 📰 快讯 · 🪙 金价 · 📡 RSS / RSSHub"]
+    sources["🔥 热榜 · 📰 快讯 · 🪙 金价"]
     adapters["🧭 自动发现的路由适配器"]
     pipeline["⚡ 异步请求<br/>🗄️ 双层缓存<br/>✨ 数据归一化"]
     output["📦 JSON API · 📡 RSS 2.0"]

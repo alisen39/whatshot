@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from starlette.requests import Request
@@ -256,6 +257,7 @@ async def test_cls_prefers_content_and_maps_importance(monkeypatch):
             False,
             "2026-06-29T00:00:00+00:00",
             {
+                "errno": 0,
                 "data": {
                     "roll_data": [
                         {
@@ -269,6 +271,7 @@ async def test_cls_prefers_content_and_maps_importance(monkeypatch):
                             "bold": "0",
                             "recommend": "0",
                             "level": "A",
+                            "type": -1,
                             "reading_num": "16974",
                             "comment_num": "6",
                             "share_num": "8",
@@ -295,6 +298,69 @@ async def test_cls_prefers_content_and_maps_importance(monkeypatch):
     assert item.metrics["shareCount"] == 8
     assert item.metrics["level"] == "A"
     assert item.symbols == [{"code": "000001", "name": "平安银行"}]
+
+
+@pytest.mark.asyncio
+async def test_cls_category_board_filters_paid_items_and_maps_subjects(monkeypatch):
+    async def fake_get(**kwargs):  # noqa: ANN003
+        query = parse_qs(urlparse(kwargs["url"]).query)
+        assert query["category"] == ["hk_us"]
+        assert query["refresh_type"] == ["1"]
+        assert query["rn"] == ["50"]
+        assert query["sign"][0] == cls._signed_url("hk-us").rsplit("sign=", 1)[1]
+        return RequestResult(
+            False,
+            "cls-update",
+            {
+                "errno": 0,
+                "data": {
+                    "roll_data": [
+                        {
+                            "id": 1,
+                            "title": "公开港美股电报",
+                            "content": "公开完整正文",
+                            "type": -1,
+                            "ctime": 1783330100,
+                            "subjects": [
+                                {
+                                    "subject_id": 1556,
+                                    "subject_name": "环球市场情报",
+                                }
+                            ],
+                        },
+                        {
+                            "id": 2,
+                            "title": "付费摘要",
+                            "content": "只有摘要",
+                            "type": 20026,
+                            "ctime": 1783330000,
+                        },
+                    ]
+                },
+            },
+        )
+
+    monkeypatch.setattr(cls, "get", fake_get)
+    result = await cls.handle_route(_request(b"type=hk-us"), no_cache=True)
+
+    assert result.type == "港美股"
+    assert [item.id for item in result.data] == ["1"]
+    assert result.data[0].tags == ["环球市场情报"]
+
+
+@pytest.mark.asyncio
+async def test_cls_rejects_upstream_business_error(monkeypatch):
+    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+        return RequestResult(
+            False,
+            "cls-update",
+            {"errno": 10012, "msg": "sign error", "data": {}},
+        )
+
+    monkeypatch.setattr(cls, "get", fake_get)
+
+    with pytest.raises(ValueError, match="errno=10012"):
+        await cls.handle_route(_request(), no_cache=True)
 
 
 @pytest.mark.asyncio

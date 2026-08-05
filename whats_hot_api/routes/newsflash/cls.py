@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from urllib.parse import urlencode
 
 from starlette.requests import Request
 
@@ -26,11 +27,29 @@ SOURCE_LINK = "https://www.cls.cn/telegraph"
 _BASE_PARAMS: dict[str, str] = {
     "app": "CailianpressWeb",
     "os": "web",
-    "sv": "8.4.6",
+    "sv": "8.7.9",
     "rn": "50",
-    "categories": "",
+    "refresh_type": "1",
 }
-TYPE_MAP = {"telegraph": "电报", "depth": "深度", "hot": "热门"}
+TYPE_MAP = {
+    "telegraph": "电报",
+    "red": "加红",
+    "announcement": "公司",
+    "watch": "看盘",
+    "hk-us": "港美股",
+    "fund": "基金",
+    "remind": "提醒",
+    "depth": "深度",
+    "hot": "热门",
+}
+_CATEGORY_BY_TYPE = {
+    "red": "red",
+    "announcement": "announcement",
+    "watch": "watch",
+    "hk-us": "hk_us",
+    "fund": "fund",
+    "remind": "remind",
+}
 
 ROUTE_META: dict = {
     "name": "cls",
@@ -41,8 +60,12 @@ ROUTE_META: dict = {
 }
 
 
-def _signed_url() -> str:
-    qs = "&".join(f"{k}={v}" for k, v in sorted(_BASE_PARAMS.items()))
+def _signed_url(board_type: str = "telegraph") -> str:
+    params = dict(_BASE_PARAMS)
+    category = _CATEGORY_BY_TYPE.get(board_type)
+    if category:
+        params["category"] = category
+    qs = urlencode(sorted(params.items()))
     sha1_value = hashlib.sha1(qs.encode(), usedforsecurity=False).hexdigest()
     sign = hashlib.md5(sha1_value.encode(), usedforsecurity=False).hexdigest()
     return f"https://www.cls.cn/v1/roll/get_roll_list?{qs}&sign={sign}"
@@ -51,7 +74,11 @@ def _signed_url() -> str:
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     requested_type = request.query_params.get("type", "telegraph")
     board_type = requested_type if requested_type in TYPE_MAP else "telegraph"
-    list_data = await _get_list(no_cache) if board_type == "telegraph" else await _get_article_list(board_type, no_cache)
+    list_data = (
+        await _get_article_list(board_type, no_cache)
+        if board_type in {"depth", "hot"}
+        else await _get_list(board_type, no_cache)
+    )
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -63,8 +90,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool) -> dict:
-    url = _signed_url()
+async def _get_list(board_type: str, no_cache: bool) -> dict:
+    url = _signed_url(board_type)
     result = await get(
         url=url,
         no_cache=no_cache,
@@ -77,10 +104,22 @@ async def _get_list(no_cache: bool) -> dict:
         },
     )
 
-    items = (result.data or {}).get("data", {}).get("roll_data") or []
+    payload = result.data if isinstance(result.data, dict) else {}
+    errno = payload.get("errno")
+    if errno not in (None, 0):
+        raise ValueError(
+            f"CLS roll list returned errno={errno}: {payload.get('msg') or ''}"
+        )
+    items = (payload.get("data") or {}).get("roll_data") or []
     data: list[NewsFlashItem] = []
     for it in items:
+        if not isinstance(it, dict):
+            continue
         if truthy_flag(it.get("is_ad")):
+            continue
+        # type=-1 is the anonymous, complete public telegraph. Other values are
+        # paid columns whose anonymous payload only contains a teaser.
+        if it.get("type") != -1:
             continue
         title = (it.get("title") or "").strip()
         full_content = strip_html(it.get("content")).strip()
@@ -112,7 +151,17 @@ async def _get_list(no_cache: bool) -> dict:
                 isImportant=important,
                 tags=(
                     compact_strings(it.get("tags"))
-                    or compact_strings(it.get("subjects"))
+                    or compact_strings(
+                        it.get("subjects"),
+                        keys=(
+                            "subject_name",
+                            "name",
+                            "title",
+                            "text",
+                            "label",
+                            "tag_name",
+                        ),
+                    )
                     or compact_strings(it.get("sub_titles"))
                 ),
                 images=[
