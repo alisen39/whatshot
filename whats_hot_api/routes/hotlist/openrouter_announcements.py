@@ -7,8 +7,8 @@ from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
 
 ROUTE_NAME = 'openrouter-announcements'
-SOURCE_LINK = 'https://openrouter.ai/announcements'
-FEED_URL = 'https://news.google.com/rss/search?q=site%3Aopenrouter.ai%2Fannouncements%20OpenRouter&hl=en-US&gl=US&ceid=US%3Aen'
+SOURCE_LINK = 'https://openrouter.ai/blog/announcements/'
+FEED_URL = 'https://openrouter.ai/blog/feed.xml'
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": 'OpenRouter Announcements',
@@ -45,8 +45,13 @@ async def _get_list(no_cache: bool) -> dict:
             "Referer": SOURCE_LINK or FEED_URL,
         },
     )
+    announcements = [
+        item
+        for item in parse_feed(result.data, limit=200)
+        if "/blog/announcements/" in item.url
+    ][:30]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
-        "data": parse_feed(result.data),
+        "data": announcements,
     }

@@ -220,3 +220,39 @@ async def test_openrouter_app_board_uses_rank_and_origin_url(monkeypatch):
     assert result.data[0].url == "https://first.example/"
     assert result.data[0].hot == 200
     assert "agent, cli" in (result.data[0].desc or "")
+
+
+@pytest.mark.asyncio
+async def test_openrouter_announcements_uses_official_feed_and_filters_category(
+    monkeypatch,
+):
+    feed = """<?xml version="1.0"?>
+    <rss version="2.0"><channel>
+      <item>
+        <title>Official launch</title>
+        <link>https://openrouter.ai/blog/announcements/official-launch/</link>
+        <guid>official-launch</guid>
+        <description>Launch details</description>
+        <pubDate>Tue, 04 Aug 2026 00:00:00 GMT</pubDate>
+      </item>
+      <item>
+        <title>Tutorial</title>
+        <link>https://openrouter.ai/blog/tutorials/setup/</link>
+        <guid>tutorial</guid>
+        <description>Setup details</description>
+        <pubDate>Mon, 03 Aug 2026 00:00:00 GMT</pubDate>
+      </item>
+    </channel></rss>"""
+
+    async def fake_get(**kwargs):  # noqa: ANN003
+        assert kwargs["url"] == "https://openrouter.ai/blog/feed.xml"
+        return RequestResult(False, "openrouter-feed-update", feed)
+
+    monkeypatch.setattr(openrouter_announcements, "get", fake_get)
+    result = await openrouter_announcements.handle_route(
+        _request("announcements"),
+        no_cache=True,
+    )
+
+    assert result.type == "官方公告"
+    assert [item.title for item in result.data] == ["Official launch"]
