@@ -25,5 +25,9 @@ class HistoryCursorError(HistoryQueryError):
     code = "INVALID_HISTORY_CURSOR"
 
 
+class HistoryCursorExpiredError(HistoryCursorError):
+    code = "CURSOR_EXPIRED"
+
+
 class HistoryRangeError(HistoryError):
     code = "QUERY_RANGE_TOO_LARGE"

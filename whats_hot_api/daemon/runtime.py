@@ -29,6 +29,12 @@ class DaemonRuntime:
             HistoryQueryActor(
                 config.storage.path,
                 timeout_seconds=config.storage.query_timeout_seconds,
+                default_history_days=config.mcp.default_history_days,
+                max_history_days=config.mcp.max_history_days,
+                cursor_ttl_seconds=config.storage.cursor_ttl_seconds,
+                cursor_secret_path=(
+                    config.daemon.state_path / "history_cursor.key"
+                ),
             )
             if config.storage.enabled
             else DisabledHistoryService()

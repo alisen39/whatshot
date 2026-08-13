@@ -284,7 +284,7 @@ def _fetch_and_render(
         board_key = canonical_board_key(
             path_type=path_type,
             params=parsed_params,
-            has_type_dimension="type" in (descriptor.params or {}),
+            declared_dimensions=(descriptor.params or {}).keys(),
         )
         value = normalize_rows(
             data.data,

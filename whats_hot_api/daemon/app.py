@@ -7,10 +7,20 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI, Query
+from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from whats_hot_api.daemon.backend_v1 import (
+    BOARD_KEY_VERSION,
+    CONTRACT_VERSION,
+    BackendContractError,
+    create_backend_v1_router,
+    error_envelope,
+)
 from whats_hot_api.daemon.runtime import DaemonRuntime
 from whats_hot_api.fetch import (
     CachePolicy,
@@ -105,6 +115,21 @@ def create_daemon_app(
     )
     app.state.daemon_runtime = runtime
     app.state.mcp_server = None
+    app.include_router(
+        create_backend_v1_router(
+            config,
+            fetch_service=runtime.fetch_service,
+            history_service=runtime.history,
+        )
+    )
+
+    @app.middleware("http")
+    async def contract_version_headers(request: Any, call_next: Any):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/v1"):
+            response.headers["X-WhatsHot-Contract-Version"] = CONTRACT_VERSION
+            response.headers["X-WhatsHot-Board-Key-Version"] = str(BOARD_KEY_VERSION)
+        return response
 
     @app.get("/internal/v1/sources")
     async def list_sources() -> dict[str, Any]:
@@ -139,7 +164,7 @@ def create_daemon_app(
             "boardKey": canonical_board_key(
                 path_type=path_type,
                 params=body.params,
-                has_type_dimension="type" in (descriptor.params or {}),
+                declared_dimensions=(descriptor.params or {}).keys(),
             ),
             "kind": result.data.kind,
             "title": result.data.title,
@@ -193,6 +218,7 @@ def create_daemon_app(
         keyword: str,
         site: str | None = None,
         board: str | None = None,
+        kind: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = Query(50, ge=1, le=200),
@@ -203,6 +229,7 @@ def create_daemon_app(
             keyword,
             site=site,
             board_key=board,
+            kind=kind,
             since=since,
             until=until,
             limit=limit,
@@ -290,6 +317,31 @@ def create_daemon_app(
             {"error": exc.as_dict()},
             status_code=exc.status_code,
         )
+
+    @app.exception_handler(BackendContractError)
+    async def backend_contract_error_handler(
+        request: Any,
+        exc: BackendContractError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            error_envelope(request, exc),
+            status_code=exc.status_code,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(
+        request: Any,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        if not request.url.path.startswith("/api/v1"):
+            return await request_validation_exception_handler(request, exc)
+        error = BackendContractError(
+            "INVALID_ARGUMENT",
+            "Request validation failed.",
+            status_code=400,
+            details={"errors": jsonable_encoder(exc.errors())},
+        )
+        return JSONResponse(error_envelope(request, error), status_code=400)
 
     @app.exception_handler(SchedulerError)
     async def scheduler_error_handler(

@@ -13,7 +13,8 @@ from typing import Any
 import orjson
 
 from whats_hot_api.history.models import CaptureBatch, RunStart
-from whats_hot_api.history.schema import SCHEMA_SQL, SCHEMA_VERSION
+from whats_hot_api.history.migrations import MigrationRunner
+from whats_hot_api.history.text import evidence_search_text
 from whats_hot_api.models import GoldItem, ListItem, NewsFlashItem
 
 
@@ -52,10 +53,19 @@ class SchedulerDuckDBWriter:
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser()
+        database_existed = self.path.exists()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = _duckdb().connect(str(self.path))
-        self._configure()
-        self._migrate()
+        try:
+            self._configure()
+            MigrationRunner(
+                self._connection,
+                self.path,
+                database_existed=database_existed,
+            ).run()
+        except Exception:
+            self._connection.close()
+            raise
 
     def close(self, *, checkpoint: bool = True) -> None:
         if checkpoint:
@@ -251,8 +261,8 @@ class SchedulerDuckDBWriter:
                 INSERT INTO hotlist_observations (
                     capture_id, site, board_key, observed_at, position,
                     source_item_id, title, url, mobile_url, hot, author,
-                    description, cover_url, published_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    description, cover_url, published_at, search_text_normalized
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     batch.capture_id,
@@ -269,6 +279,7 @@ class SchedulerDuckDBWriter:
                     raw_item.desc,
                     raw_item.cover,
                     _published_at(raw_item.timestamp),
+                    evidence_search_text(raw_item.title, raw_item.desc),
                 ],
             )
 
@@ -285,8 +296,9 @@ class SchedulerDuckDBWriter:
                     capture_id, site, board_key, observed_at, position,
                     source_item_id, title, content, summary, content_status,
                     url, mobile_url, source, is_important, tags_json,
-                    images_json, symbols_json, metrics_json, published_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    images_json, symbols_json, metrics_json, published_at,
+                    search_text_normalized
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     batch.capture_id,
@@ -308,6 +320,10 @@ class SchedulerDuckDBWriter:
                     _json(raw_item.symbols),
                     _json(raw_item.metrics),
                     _published_at(raw_item.timestamp),
+                    evidence_search_text(
+                        raw_item.title,
+                        raw_item.summary or raw_item.content,
+                    ),
                 ],
             )
 
@@ -322,8 +338,8 @@ class SchedulerDuckDBWriter:
                 INSERT INTO gold_observations (
                     capture_id, site, board_key, observed_at, source_item_id,
                     title, sell_price, recycle_price, description, price_date,
-                    url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    url, search_text_normalized
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     batch.capture_id,
@@ -337,6 +353,7 @@ class SchedulerDuckDBWriter:
                     raw_item.desc,
                     _published_at(raw_item.timestamp),
                     raw_item.url,
+                    evidence_search_text(raw_item.title, raw_item.desc),
                 ],
             )
 
@@ -350,14 +367,3 @@ class SchedulerDuckDBWriter:
         )
         for statement in statements:
             self._connection.execute(statement)
-
-    def _migrate(self) -> None:
-        self._connection.execute(SCHEMA_SQL)
-        self._connection.execute(
-            """
-            INSERT INTO schema_migrations (version, name, applied_at)
-            VALUES (?, 'initial_history_schema', ?)
-            ON CONFLICT (version) DO NOTHING
-            """,
-            [SCHEMA_VERSION, datetime.now(UTC)],
-        )

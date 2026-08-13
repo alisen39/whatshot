@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import secrets
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -33,9 +36,19 @@ class HistoryQueryActor:
         path: str | Path,
         *,
         timeout_seconds: float = 5,
+        default_history_days: int = 7,
+        max_history_days: int = 365,
+        cursor_ttl_seconds: int = 86400,
+        cursor_secret_path: str | Path | None = None,
     ) -> None:
         self._path = path
         self._timeout_seconds = timeout_seconds
+        self._default_history_days = default_history_days
+        self._max_history_days = max_history_days
+        self._cursor_ttl_seconds = cursor_ttl_seconds
+        self._cursor_secret_path = (
+            Path(cursor_secret_path) if cursor_secret_path is not None else None
+        )
         self._executor: ThreadPoolExecutor | None = None
         self._reader: HistoryReader | None = None
 
@@ -48,10 +61,21 @@ class HistoryQueryActor:
         )
         loop = asyncio.get_running_loop()
         try:
+            cursor_secret = (
+                _load_cursor_secret(self._cursor_secret_path)
+                if self._cursor_secret_path is not None
+                else None
+            )
             self._reader = await loop.run_in_executor(
                 self._executor,
-                HistoryReader,
-                self._path,
+                partial(
+                    HistoryReader,
+                    self._path,
+                    default_history_days=self._default_history_days,
+                    max_history_days=self._max_history_days,
+                    cursor_secret=cursor_secret,
+                    cursor_ttl=timedelta(seconds=self._cursor_ttl_seconds),
+                ),
             )
         except Exception:
             self._executor.shutdown(wait=True, cancel_futures=True)
@@ -92,3 +116,19 @@ class HistoryQueryActor:
         )
         self._executor.shutdown(wait=True, cancel_futures=False)
         self._executor = None
+
+
+def _load_cursor_secret(path: Path) -> bytes:
+    """Load or atomically create the daemon-local cursor signing key."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("xb") as file:
+            file.write(secrets.token_bytes(32))
+    except FileExistsError:
+        pass
+    os.chmod(path, 0o600)
+    secret = path.read_bytes()
+    if len(secret) != 32:
+        raise ValueError("History cursor signing key must contain exactly 32 bytes.")
+    return secret

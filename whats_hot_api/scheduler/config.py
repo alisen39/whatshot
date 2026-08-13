@@ -62,6 +62,7 @@ class StorageSettings:
     path: Path = field(default_factory=default_data_path)
     retention_days: int = 180
     query_timeout_seconds: int = 5
+    cursor_ttl_seconds: int = 86400
     checkpoint_on_shutdown: bool = True
 
 
@@ -183,6 +184,12 @@ def load_config(
             "storage.query_timeout_seconds",
             1,
             300,
+        ),
+        cursor_ttl_seconds=_bounded_int(
+            storage_raw.get("cursor_ttl_seconds", 86400),
+            "storage.cursor_ttl_seconds",
+            1,
+            604800,
         ),
         checkpoint_on_shutdown=_require_bool(
             storage_raw.get("checkpoint_on_shutdown", True),
@@ -325,7 +332,6 @@ def _parse_job(raw: Any, fetch_service: FetchService) -> SchedulerJob:
                 raise SchedulerConfigError(
                     f"Job '{job_id}' has invalid {key}={value!r}."
                 )
-    has_type_dimension = "type" in declared
     return SchedulerJob(
         id=job_id,
         site=site,
@@ -333,7 +339,7 @@ def _parse_job(raw: Any, fetch_service: FetchService) -> SchedulerJob:
         board_key=canonical_board_key(
             path_type=path_type,
             params=params,
-            has_type_dimension=has_type_dimension,
+            declared_dimensions=declared.keys(),
         ),
         params=params,
         interval_seconds=parse_duration(raw.get("interval", "10m")),

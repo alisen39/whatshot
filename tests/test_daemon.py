@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -18,7 +19,10 @@ from whats_hot_api.daemon.owner_lock import (
 )
 from whats_hot_api.daemon.query_actor import HistoryQueryActor
 from whats_hot_api.fetch import FetchRequest, FetchResult, SourceDescriptor
-from whats_hot_api.history.errors import HistoryQueryError
+from whats_hot_api.history.errors import (
+    HistoryCursorExpiredError,
+    HistoryQueryError,
+)
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.scheduler.config import (
     AppConfig,
@@ -27,6 +31,14 @@ from whats_hot_api.scheduler.config import (
     SchedulerJob,
     SchedulerSettings,
     StorageSettings,
+)
+
+CONTRACT_SCHEMAS = (
+    Path(__file__).parents[2]
+    / "whats-hot-mcp"
+    / "contracts"
+    / "jsonschema"
+    / "v1"
 )
 
 
@@ -166,6 +178,100 @@ async def test_control_api_triggers_scheduler_and_queries_history(
         )
         assert history.status_code == 200
         assert history.json()["items"][0]["title"] == "守护进程测试"
+
+        capabilities = await client.get("/api/v1/capabilities")
+        assert capabilities.json()["data"]["profiles"] == [
+            "core-read",
+            "history-read",
+        ]
+        assert {
+            name: capabilities.json()["data"]["features"][name]
+            for name in ("history", "historySearch", "trendSeries", "coverage")
+        } == {
+            "history": True,
+            "historySearch": True,
+            "trendSeries": True,
+            "coverage": True,
+        }
+        sources = await client.get("/api/v1/sources")
+        assert {
+            "history",
+            "historySearch",
+            "trendSeries",
+        } <= set(sources.json()["data"]["sources"][0]["capabilities"])
+
+        contract_responses = {
+            "history-response": await client.get(
+                "/api/v1/history",
+                params={"site": "demo", "boardKey": "hot"},
+            ),
+            "history-search-response": await client.get(
+                "/api/v1/history/search",
+                params={"keyword": "守护", "kind": "hotlist"},
+            ),
+            "trend-response": await client.get(
+                "/api/v1/history/trends",
+                params={
+                    "site": "demo",
+                    "boardKey": "hot",
+                    "itemId": "one",
+                },
+            ),
+            "coverage-response": await client.get(
+                "/api/v1/coverage",
+                params={"site": "demo", "kind": "hotlist"},
+            ),
+        }
+        assert all(
+            response.status_code == 200
+            for response in contract_responses.values()
+        )
+        assert contract_responses["history-response"].json()["data"]["items"][0][
+            "evidenceId"
+        ].startswith("duckdb:")
+        assert contract_responses["history-search-response"].json()["data"][
+            "coverage"
+        ]["limitations"] == ["retention-window"]
+        assert contract_responses["coverage-response"].json()["data"][
+            "configuredSites"
+        ] == ["demo"]
+
+        if CONTRACT_SCHEMAS.is_dir():
+            jsonschema = pytest.importorskip("jsonschema")
+            for name, response in contract_responses.items():
+                schema_name = (
+                    "history-response"
+                    if name == "history-search-response"
+                    else name
+                )
+                schema = json.loads(
+                    (CONTRACT_SCHEMAS / f"{schema_name}.schema.json").read_text()
+                )
+                jsonschema.Draft202012Validator(schema).validate(response.json())
+
+        invalid_cursor = await client.get(
+            "/api/v1/history",
+            params={"cursor": "W10"},
+        )
+        assert invalid_cursor.status_code == 400
+        assert invalid_cursor.json()["error"]["code"] == "INVALID_CURSOR"
+
+        original_history_call = app.state.daemon_runtime.history.call
+
+        async def expired_history_call(*_args, **_kwargs):
+            raise HistoryCursorExpiredError("expired")
+
+        app.state.daemon_runtime.history.call = expired_history_call
+        expired_cursor = await client.get("/api/v1/history")
+        app.state.daemon_runtime.history.call = original_history_call
+        assert expired_cursor.status_code == 409
+        assert expired_cursor.json()["error"]["code"] == "CURSOR_EXPIRED"
+        if CONTRACT_SCHEMAS.is_dir():
+            schema = json.loads(
+                (CONTRACT_SCHEMAS / "error-response.schema.json").read_text()
+            )
+            jsonschema.Draft202012Validator(schema).validate(invalid_cursor.json())
+            jsonschema.Draft202012Validator(schema).validate(expired_cursor.json())
 
         malformed_cursor = await client.get(
             "/internal/v1/history",

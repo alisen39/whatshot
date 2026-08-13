@@ -1,23 +1,27 @@
-"""Typed, read-only DuckDB history queries."""
+"""Contract v1 read-only DuckDB history queries."""
 
 from __future__ import annotations
 
-import base64
-import binascii
-import json
+import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from whats_hot_api.fetch import board_key_read_candidates
+from whats_hot_api.history.cursor import (
+    DEFAULT_CURSOR_TTL,
+    HistoryCursorCodec,
+    HistorySnapshotCursor,
+)
 from whats_hot_api.history.errors import (
-    HistoryCursorError,
     HistoryQueryError,
     HistoryRangeError,
     HistoryUnavailableError,
 )
+from whats_hot_api.history.text import normalize_search_text
 
 _MAX_LIMIT = 200
-_MAX_RANGE = timedelta(days=365)
+_KINDS = frozenset({"hotlist", "newsflash", "gold"})
 _BUCKETS = {
     "10m": "INTERVAL '10 minutes'",
     "1h": "INTERVAL '1 hour'",
@@ -36,72 +40,56 @@ def _duckdb():
     return duckdb
 
 
-def _utc(value: datetime | None, *, default: datetime) -> datetime:
+def _utc(value: datetime | None) -> datetime | None:
     if value is None:
-        return default
+        return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
+        raise HistoryQueryError("History timestamps must include a timezone.")
     return value.astimezone(UTC)
 
 
-def _encode_cursor(row: dict[str, Any]) -> str:
-    raw = json.dumps(
-        [
-            row["observedAt"].isoformat(),
-            row["captureId"],
-            row["__cursorRank"],
-            row["itemId"],
-        ],
-        separators=(",", ":"),
-    ).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
 
 
-def _decode_cursor(cursor: str) -> tuple[datetime, str, int, str]:
-    try:
-        if not cursor or len(cursor) > 4096:
-            raise ValueError("cursor length is invalid")
-        padding = "=" * (-len(cursor) % 4)
-        decoded = base64.b64decode(
-            cursor + padding,
-            altchars=b"-_",
-            validate=True,
-        )
-        value = json.loads(decoded.decode())
-        if not isinstance(value, list) or len(value) != 4:
-            raise ValueError("cursor payload must contain four fields")
-        timestamp, capture_id, cursor_rank, item_id = value
-        if not isinstance(timestamp, str):
-            raise TypeError("cursor timestamp must be a string")
-        observed_at = datetime.fromisoformat(timestamp)
-        if observed_at.tzinfo is None:
-            raise ValueError("cursor timestamp must include a timezone")
-        if not isinstance(capture_id, str) or not 1 <= len(capture_id) <= 256:
-            raise ValueError("cursor capture id is invalid")
-        if isinstance(cursor_rank, bool) or not isinstance(cursor_rank, int):
-            raise TypeError("cursor rank must be an integer")
-        if not isinstance(item_id, str) or len(item_id) > 2048:
-            raise ValueError("cursor item id is invalid")
-        return observed_at.astimezone(UTC), capture_id, cursor_rank, item_id
-    except (
-        binascii.Error,
-        UnicodeDecodeError,
-        json.JSONDecodeError,
-        ValueError,
-        TypeError,
-    ) as exc:
-        raise HistoryCursorError("Invalid history cursor.") from exc
+def _append_board_filter(
+    clauses: list[str],
+    params: list[Any],
+    *,
+    column: str,
+    board_key: str,
+) -> None:
+    candidates = board_key_read_candidates(board_key)
+    placeholders = ", ".join("?" for _candidate in candidates)
+    clauses.append(f"{column} IN ({placeholders})")
+    params.extend(candidates)
 
 
 class HistoryReader:
     """Public history API that never exposes SQL or a writable connection."""
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        default_history_days: int = 7,
+        max_history_days: int = 365,
+        cursor_secret: bytes | None = None,
+        cursor_ttl: timedelta = DEFAULT_CURSOR_TTL,
+    ) -> None:
+        if not 1 <= default_history_days <= max_history_days <= 3650:
+            raise ValueError("Invalid history window limits.")
         database_path = Path(path).expanduser()
         if not database_path.exists():
             raise HistoryUnavailableError(
                 f"History database does not exist: {database_path}"
             )
+        self._default_range = timedelta(days=default_history_days)
+        self._max_range = timedelta(days=max_history_days)
+        self._cursor_codec = HistoryCursorCodec(
+            cursor_secret or secrets.token_bytes(32),
+            ttl=cursor_ttl,
+        )
         try:
             self.__connection = _duckdb().connect(str(database_path))
             self.__connection.execute("SET TimeZone = 'UTC'")
@@ -128,61 +116,17 @@ class HistoryReader:
         limit: int = 50,
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        start, end, page_limit = self._validated_window(since, until, limit)
-        clauses = ["observed_at >= ?", "observed_at <= ?"]
-        params: list[Any] = [start, end]
-        if site:
-            clauses.append("site = ?")
-            params.append(site)
-        if board_key:
-            clauses.append("board_key = ?")
-            params.append(board_key)
-        if kind:
-            if kind not in {"hotlist", "newsflash", "gold"}:
-                raise HistoryQueryError(f"Unknown history kind: {kind}")
-            clauses.append("kind = ?")
-            params.append(kind)
-        if cursor:
-            observed_at, capture_id, cursor_rank, item_id = _decode_cursor(cursor)
-            clauses.append(
-                "(observed_at, capture_id, COALESCE(-rank, 0), item_id) < (?, ?, ?, ?)"
-            )
-            params.extend([observed_at, capture_id, cursor_rank, item_id])
-
-        params.append(page_limit + 1)
-        rows = self._query(
-            f"""
-            SELECT
-                capture_id AS "captureId",
-                kind,
-                site,
-                board_key AS "boardKey",
-                observed_at AS "observedAt",
-                item_id AS "itemId",
-                rank,
-                COALESCE(-rank, 0) AS "__cursorRank",
-                title,
-                url,
-                mobile_url AS "mobileUrl",
-                hot,
-                source,
-                description,
-                content,
-                published_at AS "publishedAt",
-                sell_price AS "sellPrice",
-                recycle_price AS "recyclePrice"
-            FROM history_items
-            WHERE {" AND ".join(clauses)}
-            ORDER BY
-                observed_at DESC,
-                capture_id DESC,
-                COALESCE(-rank, 0) DESC,
-                item_id DESC
-            LIMIT ?
-            """,
-            params,
+        return self._history_page(
+            query_name="history",
+            keyword=None,
+            site=site,
+            board_key=board_key,
+            kind=kind,
+            since=since,
+            until=until,
+            limit=limit,
+            cursor=cursor,
         )
-        return self._page(rows, page_limit)
 
     def search_history(
         self,
@@ -190,77 +134,177 @@ class HistoryReader:
         *,
         site: str | None = None,
         board_key: str | None = None,
+        kind: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 50,
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        if not keyword.strip():
+        if not isinstance(keyword, str) or len(keyword) > 500:
+            raise HistoryQueryError("keyword must contain at most 500 characters")
+        normalized = normalize_search_text(keyword)
+        if not normalized:
             raise HistoryQueryError("keyword must not be empty")
-        start, end, page_limit = self._validated_window(since, until, limit)
-        escaped_keyword = (
-            keyword.strip()
-            .replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
+        return self._history_page(
+            query_name="search",
+            keyword=normalized,
+            site=site,
+            board_key=board_key,
+            kind=kind,
+            since=since,
+            until=until,
+            limit=limit,
+            cursor=cursor,
         )
-        pattern = f"%{escaped_keyword}%"
-        clauses = [
-            "observed_at >= ?",
-            "observed_at <= ?",
-            (
-                "(title ILIKE ? ESCAPE '\\' "
-                "OR COALESCE(description, '') ILIKE ? ESCAPE '\\' "
-                "OR COALESCE(content, '') ILIKE ? ESCAPE '\\')"
-            ),
-        ]
-        params: list[Any] = [start, end, pattern, pattern, pattern]
-        if site:
-            clauses.append("site = ?")
-            params.append(site)
-        if board_key:
-            clauses.append("board_key = ?")
-            params.append(board_key)
-        if cursor:
-            observed_at, capture_id, cursor_rank, item_id = _decode_cursor(cursor)
-            clauses.append(
-                "(observed_at, capture_id, COALESCE(-rank, 0), item_id) < (?, ?, ?, ?)"
+
+    def _history_page(
+        self,
+        *,
+        query_name: str,
+        keyword: str | None,
+        site: str | None,
+        board_key: str | None,
+        kind: str | None,
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, Any]:
+        page_limit = self._validate_limit(limit)
+        self._validate_kind(kind)
+        provided_since = _utc(since)
+        provided_until = _utc(until)
+        filters: dict[str, Any] = {
+            "site": site,
+            "boardKey": board_key,
+            "kind": kind,
+            "since": _iso(provided_since),
+            "until": _iso(provided_until),
+        }
+        if keyword is not None:
+            filters["keyword"] = keyword
+
+        snapshot: HistorySnapshotCursor | None = None
+        if cursor is not None:
+            snapshot = self._cursor_codec.decode(
+                cursor,
+                query=query_name,
+                filters=filters,
             )
-            params.extend([observed_at, capture_id, cursor_rank, item_id])
-        params.append(page_limit + 1)
+            start, end = snapshot.since, snapshot.until
+            as_of = snapshot.as_of
+            watermark = snapshot.watermark
+        else:
+            as_of = datetime.now(UTC)
+            start, end = self._validated_window(
+                provided_since,
+                provided_until,
+                now=as_of,
+            )
+            watermark = self._max_watermark()
+
+        # The ingest watermark prevents concurrent appends from entering a page
+        # chain.  The timestamp boundary is independently required because rows
+        # already below that watermark may carry an observed_at later than this
+        # request's snapshot time (for example after clock skew or a backfill).
+        base_clauses = ["h.ingest_sequence <= ?", "h.observed_at <= ?"]
+        base_params: list[Any] = [watermark, as_of]
+        if site is not None:
+            base_clauses.append("h.site = ?")
+            base_params.append(site)
+        if board_key is not None:
+            _append_board_filter(
+                base_clauses,
+                base_params,
+                column="h.board_key",
+                board_key=board_key,
+            )
+        if kind is not None:
+            base_clauses.append("h.kind = ?")
+            base_params.append(kind)
+
+        page_clauses = ["h.observed_at >= ?", "h.observed_at <= ?"]
+        page_params: list[Any] = [start, end]
+        if keyword is not None:
+            page_clauses.append("contains(h.search_text_normalized, ?)")
+            page_params.append(keyword)
+        if snapshot is not None:
+            page_clauses.append(
+                "(h.observed_at < ? OR "
+                "(h.observed_at = ? AND h.ingest_sequence > ?))"
+            )
+            page_params.extend(
+                [
+                    snapshot.after_observed_at,
+                    snapshot.after_observed_at,
+                    snapshot.after_ingest_sequence,
+                ]
+            )
+
         rows = self._query(
             f"""
+            WITH snapshot AS (
+                SELECT h.*, c.response_update_at
+                FROM history_items h
+                JOIN captures c USING (capture_id)
+                WHERE {" AND ".join(base_clauses)}
+            ), lifecycle AS (
+                SELECT
+                    kind,
+                    site,
+                    board_key,
+                    item_id,
+                    MIN(observed_at) AS first_seen_at,
+                    MAX(observed_at) AS last_seen_at
+                FROM snapshot
+                GROUP BY kind, site, board_key, item_id
+            )
             SELECT
-                capture_id AS "captureId",
-                kind,
-                site,
-                board_key AS "boardKey",
-                observed_at AS "observedAt",
-                item_id AS "itemId",
-                rank,
-                COALESCE(-rank, 0) AS "__cursorRank",
-                title,
-                url,
-                mobile_url AS "mobileUrl",
-                hot,
-                source,
-                description,
-                content,
-                published_at AS "publishedAt",
-                sell_price AS "sellPrice",
-                recycle_price AS "recyclePrice"
-            FROM history_items
-            WHERE {" AND ".join(clauses)}
-            ORDER BY
-                observed_at DESC,
-                capture_id DESC,
-                COALESCE(-rank, 0) DESC,
-                item_id DESC
+                h.kind,
+                h.site,
+                CASE WHEN h.board_key = 'default' THEN 'hot'
+                     ELSE h.board_key END AS "boardKey",
+                'duckdb:' || lpad(
+                    CAST(h.ingest_sequence AS VARCHAR), 20, '0'
+                ) AS "evidenceId",
+                h.item_id AS "itemId",
+                h.capture_id AS "captureId",
+                h.title,
+                h.url,
+                h.description,
+                h.rank,
+                h.hot,
+                h.response_update_at AS "updateTime",
+                h.observed_at AS "observedAt",
+                lifecycle.first_seen_at AS "firstSeenAt",
+                lifecycle.last_seen_at AS "lastSeenAt",
+                h.published_at AS "publishedAt",
+                h.ingest_sequence AS "__ingestSequence"
+            FROM snapshot h
+            JOIN lifecycle USING (kind, site, board_key, item_id)
+            WHERE {" AND ".join(page_clauses)}
+            ORDER BY h.observed_at DESC, h.ingest_sequence ASC
             LIMIT ?
             """,
-            params,
+            [*base_params, *page_params, page_limit + 1],
         )
-        return self._page(rows, page_limit)
+        return self._page(
+            rows,
+            limit=page_limit,
+            query_name=query_name,
+            filters=filters,
+            since=start,
+            until=end,
+            as_of=as_of,
+            watermark=watermark,
+            coverage=self.get_data_coverage(
+                site=site,
+                board_key=board_key,
+                kind=kind,
+                watermark=watermark,
+                as_of=as_of,
+            ),
+        )
 
     def get_trend_series(
         self,
@@ -277,27 +321,39 @@ class HistoryReader:
             raise HistoryQueryError(
                 f"Unsupported bucket '{bucket}'. Valid values: {sorted(_BUCKETS)}"
             )
-        start, end, _ = self._validated_window(since, until, 200)
+        now = datetime.now(UTC)
+        start, end = self._validated_window(_utc(since), _utc(until), now=now)
+        watermark = self._max_watermark()
+        board_candidates = board_key_read_candidates(board_key)
+        board_placeholders = ", ".join("?" for _candidate in board_candidates)
         rows = self._query(
             f"""
             SELECT
                 time_bucket({interval}, observed_at) AS "bucketStart",
                 MIN(position) AS "bestRank",
                 MAX(position) AS "worstRank",
-                AVG(position) AS "averageRank",
+                CAST(AVG(position) AS DOUBLE) AS "averageRank",
                 MIN(hot) AS "minHot",
                 MAX(hot) AS "maxHot",
                 COUNT(*) AS "samples"
             FROM hotlist_observations
             WHERE site = ?
-              AND board_key = ?
+              AND board_key IN ({board_placeholders})
               AND source_item_id = ?
               AND observed_at >= ?
               AND observed_at <= ?
+              AND ingest_sequence <= ?
             GROUP BY 1
             ORDER BY 1
             """,
-            [site, board_key, item_id, start, end],
+            [
+                site,
+                *board_candidates,
+                item_id,
+                start,
+                end,
+                watermark,
+            ],
         )
         return {
             "site": site,
@@ -305,6 +361,68 @@ class HistoryReader:
             "itemId": item_id,
             "bucket": bucket,
             "series": rows,
+            "coverage": self.get_data_coverage(
+                site=site,
+                board_key=board_key,
+                kind="hotlist",
+                watermark=watermark,
+                as_of=now,
+            ),
+        }
+
+    def get_data_coverage(
+        self,
+        *,
+        site: str | None = None,
+        board_key: str | None = None,
+        kind: str | None = None,
+        watermark: int | None = None,
+        as_of: datetime | None = None,
+    ) -> dict[str, Any]:
+        self._validate_kind(kind)
+        effective_watermark = self._max_watermark() if watermark is None else watermark
+        effective_as_of = _utc(as_of) or datetime.now(UTC)
+        clauses = ["ingest_sequence <= ?", "observed_at <= ?"]
+        params: list[Any] = [effective_watermark, effective_as_of]
+        if site is not None:
+            clauses.append("site = ?")
+            params.append(site)
+        if board_key is not None:
+            _append_board_filter(
+                clauses,
+                params,
+                column="board_key",
+                board_key=board_key,
+            )
+        if kind is not None:
+            clauses.append("kind = ?")
+            params.append(kind)
+        where = " AND ".join(clauses)
+        stats = self._query(
+            f"""
+            SELECT
+                MIN(observed_at) AS "earliestAvailableAt",
+                MAX(observed_at) AS "latestAvailableAt"
+            FROM history_items
+            WHERE {where}
+            """,
+            params,
+        )[0]
+        sites = self._query(
+            f"""
+            SELECT DISTINCT site
+            FROM history_items
+            WHERE {where}
+            ORDER BY site
+            """,
+            params,
+        )
+        return {
+            "historyEnabled": True,
+            **stats,
+            "configuredSites": [row["site"] for row in sites],
+            "complete": False,
+            "limitations": ["retention-window"],
         }
 
     def get_capture(self, capture_id: str) -> dict[str, Any] | None:
@@ -375,6 +493,12 @@ class HistoryReader:
         )
         return {"enabled": True, **counts[0]}
 
+    def _max_watermark(self) -> int:
+        row = self._query(
+            'SELECT MAX(ingest_sequence) AS "watermark" FROM history_items'
+        )[0]
+        return int(row.get("watermark", 0))
+
     def _query(
         self,
         sql: str,
@@ -396,34 +520,74 @@ class HistoryReader:
         except Exception as exc:
             raise HistoryQueryError("History query failed.") from exc
 
-    @staticmethod
     def _validated_window(
+        self,
         since: datetime | None,
         until: datetime | None,
-        limit: int,
-    ) -> tuple[datetime, datetime, int]:
-        if not 1 <= limit <= _MAX_LIMIT:
-            raise HistoryQueryError(f"limit must be between 1 and {_MAX_LIMIT}")
-        now = datetime.now(UTC)
-        end = _utc(until, default=now)
-        start = _utc(since, default=end - timedelta(days=7))
+        *,
+        now: datetime,
+    ) -> tuple[datetime, datetime]:
+        end = min(until or now, now)
+        start = since or end - self._default_range
         if start > end:
             raise HistoryQueryError("since must not be after until")
-        if end - start > _MAX_RANGE:
-            raise HistoryRangeError("History range must not exceed 365 days.")
-        return start, end, limit
+        if end - start > self._max_range:
+            raise HistoryRangeError(
+                "History range exceeds Backend capability."
+            )
+        return start, end
 
     @staticmethod
-    def _page(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
+    def _validate_limit(limit: int) -> int:
+        if isinstance(limit, bool) or not 1 <= limit <= _MAX_LIMIT:
+            raise HistoryQueryError(f"limit must be between 1 and {_MAX_LIMIT}")
+        return limit
+
+    @staticmethod
+    def _validate_kind(kind: str | None) -> None:
+        if kind is not None and kind not in _KINDS:
+            raise HistoryQueryError(f"Unknown history kind: {kind}")
+
+    def _page(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        limit: int,
+        query_name: str,
+        filters: dict[str, Any],
+        since: datetime,
+        until: datetime,
+        as_of: datetime,
+        watermark: int,
+        coverage: dict[str, Any],
+    ) -> dict[str, Any]:
         truncated = len(rows) > limit
         selected = rows[:limit]
-        next_cursor = _encode_cursor(selected[-1]) if truncated and selected else None
+        next_cursor: str | None = None
+        if truncated and selected:
+            last = selected[-1]
+            next_cursor = self._cursor_codec.encode(
+                query=query_name,
+                filters=filters,
+                since=since,
+                until=until,
+                as_of=as_of,
+                watermark=watermark,
+                after_observed_at=last["observedAt"],
+                after_ingest_sequence=last["__ingestSequence"],
+            )
         items = [
-            {key: value for key, value in row.items() if key != "__cursorRank"}
+            {
+                key: value
+                for key, value in row.items()
+                if key != "__ingestSequence"
+            }
             for row in selected
         ]
         return {
             "items": items,
             "nextCursor": next_cursor,
             "truncated": truncated,
+            "asOf": as_of,
+            "coverage": coverage,
         }

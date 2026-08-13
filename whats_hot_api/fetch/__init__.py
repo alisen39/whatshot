@@ -8,7 +8,13 @@ from whats_hot_api.fetch.errors import (
     FetchTypeNotFoundError,
     FetchUpstreamError,
 )
-from whats_hot_api.fetch.identity import canonical_board_key
+from whats_hot_api.fetch.identity import (
+    BOARD_KEY_VERSION,
+    SUPPORTED_BOARD_DIMENSIONS,
+    BoardIdentityError,
+    board_key_read_candidates,
+    canonical_board_key,
+)
 from whats_hot_api.fetch.models import (
     CachePolicy,
     FetchRequest,
@@ -19,6 +25,9 @@ from whats_hot_api.fetch.service import FetchService
 
 __all__ = [
     "CachePolicy",
+    "BOARD_KEY_VERSION",
+    "SUPPORTED_BOARD_DIMENSIONS",
+    "BoardIdentityError",
     "FetchCacheMissError",
     "FetchError",
     "FetchInvalidRequestError",
@@ -29,5 +38,6 @@ __all__ = [
     "FetchTypeNotFoundError",
     "FetchUpstreamError",
     "SourceDescriptor",
+    "board_key_read_candidates",
     "canonical_board_key",
 ]

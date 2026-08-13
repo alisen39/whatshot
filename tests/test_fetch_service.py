@@ -79,12 +79,28 @@ async def test_fetch_service_merges_path_type_and_params() -> None:
         observed["no_cache"] = no_cache
         return _router_data()
 
-    service = _service_for(handler)
+    service = _service_for(
+        handler,
+        metadata={
+            "name": "demo",
+            "title": "Demo",
+            "params": {
+                "type": {
+                    "name": "榜单",
+                    "type": {"hot": "热门", "new": "最新"},
+                },
+                "range": {
+                    "name": "周期",
+                    "type": {"DAY": "日", "WEEK": "周"},
+                },
+            },
+        },
+    )
     result = await service.fetch(
         FetchRequest(
             site="demo",
             path_type="new",
-            params={"type": "ignored", "range": "WEEK"},
+            params={"range": "WEEK"},
             cache_policy=CachePolicy.REFRESH,
         )
     )
@@ -93,6 +109,46 @@ async def test_fetch_service_merges_path_type_and_params() -> None:
     assert result.from_cache is False
     assert result.observed_at.tzinfo is not None
     assert result.data.updateTime == result.observed_at.isoformat()
+
+
+async def test_fetch_service_rejects_duplicate_type_dimension_before_handler() -> None:
+    called = False
+
+    async def handler(request, no_cache: bool = False):
+        nonlocal called
+        called = True
+        return _router_data()
+
+    with pytest.raises(FetchInvalidRequestError, match="path_type"):
+        await _service_for(handler).fetch(
+            FetchRequest(
+                site="demo",
+                path_type="new",
+                params={"type": "hot"},
+            )
+        )
+
+    assert called is False
+
+
+async def test_fetch_service_rejects_undeclared_dimension_before_handler() -> None:
+    called = False
+
+    async def handler(request, no_cache: bool = False):
+        nonlocal called
+        called = True
+        return _router_data()
+
+    with pytest.raises(FetchInvalidRequestError, match="not declared"):
+        await _service_for(handler).fetch(
+            FetchRequest(
+                site="demo",
+                path_type="new",
+                params={"province": "北京市"},
+            )
+        )
+
+    assert called is False
 
 
 async def test_fetch_service_preserves_cached_response_time() -> None:

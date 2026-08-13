@@ -1,10 +1,12 @@
-"""DuckDB schema owned and migrated by the Scheduler writer."""
+"""Versioned DuckDB schema definitions owned by the Scheduler writer."""
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
-SCHEMA_SQL = """
+# Version 1 is intentionally retained verbatim so a new database and a legacy
+# database travel through the same ordered migration chain.
+SCHEMA_V1_SQL = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     name VARCHAR NOT NULL,
@@ -170,3 +172,115 @@ SELECT
     g.recycle_price
 FROM gold_observations g;
 """
+
+SCHEMA_MIGRATIONS_SQL = """
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR NOT NULL DEFAULT 'completed',
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    error_message VARCHAR,
+    backup_path VARCHAR,
+    backup_sha256 VARCHAR
+);
+"""
+
+HISTORY_ITEMS_V2_SQL = """
+CREATE OR REPLACE VIEW history_items AS
+SELECT
+    h.ingest_sequence,
+    h.search_text_normalized,
+    h.capture_id,
+    'hotlist' AS kind,
+    h.site,
+    h.board_key,
+    h.observed_at,
+    h.source_item_id AS item_id,
+    h.position AS rank,
+    h.title,
+    h.url,
+    h.mobile_url,
+    h.hot,
+    h.author AS source,
+    h.description,
+    CAST(NULL AS VARCHAR) AS content,
+    h.published_at,
+    CAST(NULL AS BIGINT) AS sell_price,
+    CAST(NULL AS BIGINT) AS recycle_price
+FROM hotlist_observations h
+UNION ALL
+SELECT
+    o.ingest_sequence,
+    o.search_text_normalized,
+    o.capture_id,
+    'newsflash' AS kind,
+    o.site,
+    o.board_key,
+    o.observed_at,
+    o.source_item_id AS item_id,
+    o.position AS rank,
+    o.title,
+    o.url,
+    o.mobile_url,
+    CAST(NULL AS BIGINT) AS hot,
+    o.source,
+    COALESCE(o.summary, o.content) AS description,
+    o.content,
+    o.published_at,
+    CAST(NULL AS BIGINT) AS sell_price,
+    CAST(NULL AS BIGINT) AS recycle_price
+FROM newsflash_occurrences o
+UNION ALL
+SELECT
+    g.ingest_sequence,
+    g.search_text_normalized,
+    g.capture_id,
+    'gold' AS kind,
+    g.site,
+    g.board_key,
+    g.observed_at,
+    g.source_item_id AS item_id,
+    CAST(NULL AS INTEGER) AS rank,
+    g.title,
+    g.url,
+    CAST(NULL AS VARCHAR) AS mobile_url,
+    CAST(NULL AS BIGINT) AS hot,
+    CAST(NULL AS VARCHAR) AS source,
+    g.description,
+    CAST(NULL AS VARCHAR) AS content,
+    g.price_date AS published_at,
+    g.sell_price,
+    g.recycle_price
+FROM gold_observations g;
+"""
+
+V2_INDEXES_SQL = """
+CREATE INDEX IF NOT EXISTS idx_captures_site_board_time
+ON captures(site, board_key, observed_at);
+
+CREATE INDEX IF NOT EXISTS idx_hotlist_site_board_sequence
+ON hotlist_observations(site, board_key, observed_at, ingest_sequence);
+
+CREATE INDEX IF NOT EXISTS idx_hotlist_item_time
+ON hotlist_observations(site, board_key, source_item_id, observed_at);
+
+CREATE INDEX IF NOT EXISTS idx_newsflash_site_board_sequence
+ON newsflash_occurrences(site, board_key, observed_at, ingest_sequence);
+
+CREATE INDEX IF NOT EXISTS idx_gold_site_board_sequence
+ON gold_observations(site, board_key, observed_at, ingest_sequence);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hotlist_ingest_sequence
+ON hotlist_observations(ingest_sequence);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_newsflash_ingest_sequence
+ON newsflash_occurrences(ingest_sequence);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gold_ingest_sequence
+ON gold_observations(ingest_sequence);
+"""
+
+# Temporary compatibility alias for code/tests importing the old constant.
+SCHEMA_SQL = SCHEMA_V1_SQL

@@ -82,7 +82,7 @@ def test_parse_duration_and_board_key() -> None:
         canonical_board_key(
             path_type="1",
             params={"range": "WEEK"},
-            has_type_dimension=True,
+            declared_dimensions={"type", "range"},
         )
         == "type=1&range=WEEK"
     )
@@ -90,7 +90,7 @@ def test_parse_duration_and_board_key() -> None:
         canonical_board_key(
             path_type="hot",
             params={},
-            has_type_dimension=False,
+            declared_dimensions=set(),
         )
         == "hot"
     )
@@ -103,6 +103,7 @@ def test_load_config_defaults_to_zero_jobs(tmp_path: Path) -> None:
     assert config.jobs == ()
     assert config.scheduler.enabled is True
     assert config.storage.enabled is True
+    assert config.storage.cursor_ttl_seconds == 86400
 
 
 def test_project_config_is_preferred_and_paths_are_config_relative(
@@ -117,6 +118,7 @@ state_path = "data/state"
 
 [storage]
 path = "data/whatshot.duckdb"
+cursor_ttl_seconds = 3600
 """,
         encoding="utf-8",
     )
@@ -128,6 +130,7 @@ path = "data/whatshot.duckdb"
 
     assert config.daemon.state_path == tmp_path / "data" / "state"
     assert config.storage.path == tmp_path / "data" / "whatshot.duckdb"
+    assert config.storage.cursor_ttl_seconds == 3600
 
 
 def test_load_config_fills_secondary_dimension_defaults(tmp_path: Path) -> None:

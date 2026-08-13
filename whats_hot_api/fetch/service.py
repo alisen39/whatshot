@@ -19,6 +19,7 @@ from whats_hot_api.fetch.errors import (
     FetchTypeNotFoundError,
     FetchUpstreamError,
 )
+from whats_hot_api.fetch.identity import BoardIdentityError, canonical_board_key
 from whats_hot_api.fetch.models import (
     CachePolicy,
     FetchRequest,
@@ -97,6 +98,20 @@ class FetchService:
                     "validTypes": list(descriptor.types),
                 },
             )
+        try:
+            canonical_board_key(
+                path_type=request.path_type,
+                params=request.params,
+                declared_dimensions=(descriptor.params or {}).keys(),
+            )
+        except BoardIdentityError as exc:
+            raise FetchInvalidRequestError(
+                str(exc),
+                details={
+                    "site": request.site,
+                    "declaredDimensions": list((descriptor.params or {}).keys()),
+                },
+            ) from exc
 
         no_cache = request.cache_policy is CachePolicy.REFRESH
         cache_context = (

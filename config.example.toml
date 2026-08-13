@@ -8,6 +8,7 @@ enabled = true
 path = "data/whatshot.duckdb"
 retention_days = 180
 query_timeout_seconds = 5
+cursor_ttl_seconds = 86400
 checkpoint_on_shutdown = true
 
 [scheduler]

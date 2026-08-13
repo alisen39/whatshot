@@ -65,7 +65,7 @@ class RuntimeMcpBackend:
         board_key = canonical_board_key(
             path_type=path_type,
             params=params,
-            has_type_dimension="type" in (descriptor.params or {}),
+            declared_dimensions=(descriptor.params or {}).keys(),
         )
         return {
             "site": site,
