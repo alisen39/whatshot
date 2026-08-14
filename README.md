@@ -358,8 +358,7 @@ CLI、Core HTTP 和 MCP `fetch_current` 仍可使用；历史查询返回
 归档为 `archive/YYYY/MM/YYYY-MM-DD.parquet`，并以单一 `data_dir` 支持本地
 目录或容器 volume 挂载。该归档能力尚未实现。
 
-完整架构、Schema、事务和验收标准见
-[技术方案](../TECHNICAL_DESIGN_CLI_MCP_HISTORY_SCHEDULER.md)。
+完整架构、Schema、事务和验收标准由项目技术设计文档维护。
 
 ### 3. 使用 CLI
 
