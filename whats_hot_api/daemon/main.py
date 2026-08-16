@@ -21,10 +21,6 @@ def run_daemon(config_path: str | Path | None = None) -> None:
         raise SchedulerConfigError(
             "History support is not installed; install whats-hot-api[history]."
         )
-    if config.mcp.enabled and find_spec("mcp") is None:
-        raise SchedulerConfigError(
-            "MCP support is not installed; install whats-hot-api[daemon]."
-        )
     uvicorn.run(
         create_daemon_app(config, fetch_service=fetch_service),
         host=config.daemon.bind,

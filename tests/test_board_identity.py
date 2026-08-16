@@ -6,7 +6,6 @@ from whats_hot_api.fetch import (
     BOARD_KEY_VERSION,
     SUPPORTED_BOARD_DIMENSIONS,
     BoardIdentityError,
-    board_key_read_candidates,
     canonical_board_key,
 )
 from whats_hot_api.registry import discover_and_register_routes, fetch_service
@@ -74,12 +73,6 @@ def test_board_key_v1_rejects_invalid_dimensions(
             params=params,
             declared_dimensions=declared,
         )
-
-
-def test_legacy_default_is_read_only_alias_for_hot() -> None:
-    assert board_key_read_candidates("hot") == ("hot", "default")
-    assert board_key_read_candidates("default") == ("hot", "default")
-    assert board_key_read_candidates("type=weekly") == ("type=weekly",)
 
 
 def test_all_core_sources_only_declare_contract_v1_dimensions() -> None:

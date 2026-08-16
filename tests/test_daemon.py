@@ -9,8 +9,6 @@ from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
 
 from whats_hot_api.daemon.app import create_daemon_app
 from whats_hot_api.daemon.owner_lock import (
@@ -27,7 +25,7 @@ from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.scheduler.config import (
     AppConfig,
     DaemonSettings,
-    McpSettings,
+    BackendApiSettings,
     SchedulerJob,
     SchedulerSettings,
     StorageSettings,
@@ -94,11 +92,6 @@ class _BlockingFetchService(_FakeFetchService):
         self.started.set()
         await self.release.wait()
         return await super().fetch(request)
-
-
-class _SecretFailingFetchService(_FakeFetchService):
-    async def fetch(self, request: FetchRequest) -> FetchResult:
-        raise RuntimeError("SECRET /Users/alisen/private.toml token=abc")
 
 
 def _config(tmp_path: Path) -> AppConfig:
@@ -349,44 +342,7 @@ async def test_daemon_lifespan_can_restart_cleanly(tmp_path: Path) -> None:
             assert health.status_code == 200
 
 
-async def test_daemon_serves_streamable_http_mcp(tmp_path: Path) -> None:
-    app = create_daemon_app(
-        _config(tmp_path),
-        fetch_service=_FakeFetchService(),  # type: ignore[arg-type]
-    )
-    async with (
-        app.router.lifespan_context(app),
-        AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://127.0.0.1:6690",
-        ) as http_client,
-    ):
-        trigger = await http_client.post("/internal/v1/scheduler/jobs/demo-hot/trigger")
-        assert trigger.status_code == 202
-        assert (await _wait_for_operation(http_client, trigger.json()))[
-            "status"
-        ] == "success"
-        async with (
-            streamable_http_client(
-                "http://127.0.0.1:6690/mcp",
-                http_client=http_client,
-            ) as streams,
-            ClientSession(*streams) as session,
-        ):
-            await session.initialize()
-            tools = await session.list_tools()
-            names = {tool.name for tool in tools.tools}
-            assert "query_history" in names
-            assert "trigger_scheduler" not in names
-            history = await session.call_tool(
-                "query_history",
-                {"site": "demo", "board_key": "hot"},
-            )
-            assert history.is_error is False
-            assert history.structured_content["items"][0]["title"] == "守护进程测试"
-
-
-async def test_disabled_storage_keeps_live_fetch_and_mcp_available(
+async def test_disabled_storage_keeps_backend_current_available(
     tmp_path: Path,
 ) -> None:
     config = _disabled_storage_config(tmp_path)
@@ -426,24 +382,6 @@ async def test_disabled_storage_keeps_live_fetch_and_mcp_available(
         assert health.json()["scheduler"]["storageEnabled"] is False
         assert health.json()["scheduler"]["running"] is False
 
-        async with (
-            streamable_http_client(
-                "http://127.0.0.1:6690/mcp",
-                http_client=http_client,
-            ) as streams,
-            ClientSession(*streams) as session,
-        ):
-            await session.initialize()
-            live = await session.call_tool("fetch_current", {"site": "demo"})
-            assert live.is_error is False
-            disabled_history = await session.call_tool("query_history", {})
-            assert disabled_history.is_error is True
-            rendered = " ".join(item.text for item in disabled_history.content)
-            assert "HISTORY_DISABLED" in rendered
-            mcp_stats = await session.call_tool("get_storage_stats", {})
-            assert mcp_stats.is_error is False
-            assert mcp_stats.structured_content["enabled"] is False
-
         assert config.storage.path.exists() is False
         assert config.storage.path.parent.exists() is False
 
@@ -465,39 +403,6 @@ async def test_disabled_storage_does_not_touch_existing_database(
         assert config.storage.path.with_suffix(".duckdb.wal").exists() is False
 
     assert config.storage.path.read_bytes() == original
-
-
-async def test_streamable_http_mcp_redacts_internal_errors(
-    tmp_path: Path,
-) -> None:
-    app = create_daemon_app(
-        _config(tmp_path),
-        fetch_service=_SecretFailingFetchService(),  # type: ignore[arg-type]
-    )
-    async with (
-        app.router.lifespan_context(app),
-        AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://127.0.0.1:6690",
-        ) as http_client,
-        streamable_http_client(
-            "http://127.0.0.1:6690/mcp",
-            http_client=http_client,
-        ) as streams,
-        ClientSession(*streams) as session,
-    ):
-        await session.initialize()
-        result = await session.call_tool(
-            "fetch_current",
-            {"site": "demo"},
-        )
-        rendered = " ".join(content.text for content in result.content)
-
-        assert result.is_error is True
-        assert "INTERNAL_ERROR" in rendered
-        assert "SECRET" not in rendered
-        assert "/Users/alisen" not in rendered
-        assert "token=abc" not in rendered
 
 
 async def test_history_query_actor_interrupts_timeout(tmp_path: Path) -> None:
@@ -539,7 +444,7 @@ def test_daemon_without_storage_does_not_require_history_dependencies(
             path=tmp_path / "data" / "whatshot.duckdb",
         ),
         scheduler=SchedulerSettings(enabled=False),
-        mcp=McpSettings(enabled=False),
+        backend_api=BackendApiSettings(),
     )
     launched: list[object] = []
     monkeypatch.setattr(main, "discover_and_register_routes", lambda: None)

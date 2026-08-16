@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from whats_hot_api.fetch import board_key_read_candidates
 from whats_hot_api.history.cursor import (
     DEFAULT_CURSOR_TTL,
     HistoryCursorCodec,
@@ -59,10 +58,8 @@ def _append_board_filter(
     column: str,
     board_key: str,
 ) -> None:
-    candidates = board_key_read_candidates(board_key)
-    placeholders = ", ".join("?" for _candidate in candidates)
-    clauses.append(f"{column} IN ({placeholders})")
-    params.extend(candidates)
+    clauses.append(f"{column} = ?")
+    params.append(board_key)
 
 
 class HistoryReader:
@@ -262,8 +259,7 @@ class HistoryReader:
             SELECT
                 h.kind,
                 h.site,
-                CASE WHEN h.board_key = 'default' THEN 'hot'
-                     ELSE h.board_key END AS "boardKey",
+                h.board_key AS "boardKey",
                 'duckdb:' || lpad(
                     CAST(h.ingest_sequence AS VARCHAR), 20, '0'
                 ) AS "evidenceId",
@@ -324,8 +320,6 @@ class HistoryReader:
         now = datetime.now(UTC)
         start, end = self._validated_window(_utc(since), _utc(until), now=now)
         watermark = self._max_watermark()
-        board_candidates = board_key_read_candidates(board_key)
-        board_placeholders = ", ".join("?" for _candidate in board_candidates)
         rows = self._query(
             f"""
             SELECT
@@ -338,7 +332,7 @@ class HistoryReader:
                 COUNT(*) AS "samples"
             FROM hotlist_observations
             WHERE site = ?
-              AND board_key IN ({board_placeholders})
+              AND board_key = ?
               AND source_item_id = ?
               AND observed_at >= ?
               AND observed_at <= ?
@@ -348,7 +342,7 @@ class HistoryReader:
             """,
             [
                 site,
-                *board_candidates,
+                board_key,
                 item_id,
                 start,
                 end,

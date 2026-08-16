@@ -172,10 +172,10 @@ def create_backend_v1_router(
                     "kinds": sorted(_KINDS),
                 },
                 "limits": {
-                    "maxResultItems": config.mcp.max_result_items,
+                    "maxResultItems": config.backend_api.max_result_items,
                     "maxBatchTargets": MAX_BATCH_TARGETS,
-                    "defaultHistoryDays": config.mcp.default_history_days,
-                    "maxHistoryDays": config.mcp.max_history_days,
+                    "defaultHistoryDays": config.backend_api.default_history_days,
+                    "maxHistoryDays": config.backend_api.max_history_days,
                 },
             },
         )
@@ -640,8 +640,6 @@ def _resolve_board(
     boards = _boards_for(descriptor)
     if requested_key is None:
         return next(board for board in boards if board.is_default)
-    if requested_key == "default":
-        requested_key = "hot"
     for board in boards:
         if board.board_key == requested_key:
             return board
@@ -665,8 +663,7 @@ def _resolve_history_target(
 ) -> tuple[str | None, BoardTarget | None]:
     """Validate Contract history identity without coupling storage to routes.
 
-    History accepts the migration-only ``default`` alias on reads, but every
-    other value must already be canonical boardKey v1.  When a site is present,
+    Every value must be canonical boardKey v1. When a site is present,
     its current source schema is also the authority for whether that board is
     known.  A site-less board filter is accepted only when at least one current
     source declares the same finite or dynamic board identity.
@@ -700,8 +697,6 @@ def _resolve_history_target(
 
 
 def _canonical_history_board_key(board_key: str) -> str:
-    if board_key == "default":
-        return "hot"
     if board_key == "hot":
         return board_key
     try:
@@ -878,12 +873,12 @@ def _iso_datetime(value: datetime | str) -> str:
 
 
 def _validate_result_limit(limit: int, *, config: AppConfig) -> None:
-    if limit > config.mcp.max_result_items:
+    if limit > config.backend_api.max_result_items:
         raise BackendContractError(
             "INVALID_ARGUMENT",
             "Requested result limit exceeds Backend capability.",
             status_code=400,
-            details={"maxResultItems": config.mcp.max_result_items},
+            details={"maxResultItems": config.backend_api.max_result_items},
         )
 
 

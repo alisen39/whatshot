@@ -30,9 +30,7 @@ shutdown_grace_seconds = 30
 # enabled = true
 # run_on_start = true
 
-[mcp]
-enabled = true
-streamable_http_path = "/mcp"
+[backend_api]
 max_result_items = 200
 default_history_days = 7
 max_history_days = 365

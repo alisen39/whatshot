@@ -1,6 +1,6 @@
 """Scheduler-exclusive DuckDB writer.
 
-No CLI, HTTP, history, or MCP module may import this module.
+No CLI, HTTP, history, or Backend API module may import this module.
 """
 
 from __future__ import annotations

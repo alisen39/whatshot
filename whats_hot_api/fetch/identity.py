@@ -1,4 +1,4 @@
-"""Canonical board identity shared by CLI, Scheduler, history, and MCP.
+"""Canonical board identity shared by CLI, Scheduler, history, and Backend APIs.
 
 ``boardKey`` v1 is deliberately derived only from dimensions declared by a
 source.  This keeps transport options (for example ``limit`` or ``cache``)
@@ -98,16 +98,3 @@ def canonical_board_key(
         errors="strict",
         quote_via=quote,
     )
-
-
-def board_key_read_candidates(board_key: str) -> tuple[str, ...]:
-    """Return exact keys to try while the legacy ``default`` alias exists.
-
-    New writes must always use :func:`canonical_board_key`.  This helper is
-    intentionally non-destructive: a later DuckDB migration can use it for the
-    compatibility window without rewriting existing rows in place.
-    """
-
-    if board_key in {"hot", "default"}:
-        return ("hot", "default")
-    return (board_key,)

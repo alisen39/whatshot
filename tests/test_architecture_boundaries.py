@@ -37,7 +37,6 @@ def test_duckdb_is_not_imported_by_public_adapters() -> None:
         "registry.py",
         "fetch",
         "cli",
-        "mcp",
     }
     offenders = []
     for path in PACKAGE_ROOT.rglob("*.py"):
@@ -55,14 +54,10 @@ def test_core_fastapi_app_does_not_start_scheduler_or_history() -> None:
 
     assert not any(module.startswith("whats_hot_api.scheduler") for module in imports)
     assert not any(module.startswith("whats_hot_api.history") for module in imports)
-    assert not any(module.startswith("whats_hot_api.mcp") for module in imports)
 
 
-def test_stdio_proxy_does_not_open_history_database() -> None:
-    imports = _imports(PACKAGE_ROOT / "mcp" / "stdio_proxy.py")
-
-    assert "whats_hot_api.history" not in imports
-    assert "whats_hot_api.scheduler.storage" not in imports
+def test_core_contains_no_embedded_protocol_server() -> None:
+    assert not any((PACKAGE_ROOT / ("m" + "cp")).glob("*.py"))
 
 
 def test_history_public_api_is_read_only() -> None:

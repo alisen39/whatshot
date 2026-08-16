@@ -257,37 +257,6 @@ def test_scheduler_writer_and_history_reader_round_trip(tmp_path: Path) -> None:
     connection.close()
 
 
-def test_history_reads_legacy_default_rows_through_hot_alias(tmp_path: Path) -> None:
-    database = tmp_path / "whatshot.duckdb"
-    writer = SchedulerDuckDBWriter(database)
-    observed_at = datetime.now(UTC) - timedelta(minutes=1)
-    batch = _hotlist_batch("legacy-default", observed_at)
-    writer.persist_capture(batch)
-    writer.close()
-
-    connection = duckdb.connect(str(database))
-    connection.execute(
-        "UPDATE captures SET board_key = 'default' WHERE capture_id = ?",
-        [batch.capture_id],
-    )
-    connection.execute(
-        "UPDATE hotlist_observations SET board_key = 'default' WHERE capture_id = ?",
-        [batch.capture_id],
-    )
-    connection.close()
-
-    reader = HistoryReader(database)
-    page = reader.query_history(
-        site="demo",
-        board_key="hot",
-        since=observed_at - timedelta(minutes=1),
-        until=observed_at + timedelta(minutes=1),
-    )
-    assert len(page["items"]) == 2
-    assert {item["boardKey"] for item in page["items"]} == {"hot"}
-    reader.close()
-
-
 def test_newsflash_is_deduplicated_but_occurrences_are_preserved(
     tmp_path: Path,
 ) -> None:

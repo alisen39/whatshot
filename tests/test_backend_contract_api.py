@@ -28,7 +28,7 @@ from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.scheduler.config import (
     AppConfig,
     DaemonSettings,
-    McpSettings,
+    BackendApiSettings,
     SchedulerSettings,
     StorageSettings,
 )
@@ -160,7 +160,7 @@ def _config(tmp_path: Path, *, max_items: int = 200) -> AppConfig:
             max_fetch_concurrency=2,
             jitter_seconds=0,
         ),
-        mcp=McpSettings(enabled=False, max_result_items=max_items),
+        backend_api=BackendApiSettings(max_result_items=max_items),
     )
 
 
@@ -539,7 +539,7 @@ async def test_core_contract_returns_stable_unavailable_for_disabled_history(
     }
 
 
-async def test_history_board_identity_is_canonical_known_and_legacy_readable(
+async def test_history_board_identity_requires_canonical_known_keys(
     tmp_path: Path,
 ) -> None:
     service = _ContractFetchService()
@@ -570,16 +570,16 @@ async def test_history_board_identity_is_canonical_known_and_legacy_readable(
             params={"site": "missing"},
         )
 
-    assert legacy.status_code == 200
-    assert history.calls[0][2]["board_key"] == "hot"
+    assert legacy.status_code == 404
+    assert legacy.json()["error"]["code"] == "UNKNOWN_BOARD"
     assert canonical.status_code == 200
-    assert history.calls[1][2]["board_key"] == "type=hot&range=DAY"
+    assert history.calls[0][2]["board_key"] == "type=hot&range=DAY"
     for response in (noncanonical, unknown):
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "UNKNOWN_BOARD"
     assert unknown_source.status_code == 404
     assert unknown_source.json()["error"]["code"] == "UNKNOWN_SOURCE"
-    assert len(history.calls) == 2
+    assert len(history.calls) == 1
 
 
 async def test_newsflash_trend_returns_capability_unavailable_without_querying_storage(

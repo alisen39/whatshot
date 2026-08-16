@@ -1,4 +1,4 @@
-"""Reusable route fetching facade for HTTP, CLI, Scheduler, and MCP."""
+"""Reusable route fetching facade for HTTP, CLI, Scheduler, and Backend APIs."""
 
 from whats_hot_api.fetch.errors import (
     FetchCacheMissError,
@@ -12,7 +12,6 @@ from whats_hot_api.fetch.identity import (
     BOARD_KEY_VERSION,
     SUPPORTED_BOARD_DIMENSIONS,
     BoardIdentityError,
-    board_key_read_candidates,
     canonical_board_key,
 )
 from whats_hot_api.fetch.models import (
@@ -38,6 +37,5 @@ __all__ = [
     "FetchTypeNotFoundError",
     "FetchUpstreamError",
     "SourceDescriptor",
-    "board_key_read_candidates",
     "canonical_board_key",
 ]

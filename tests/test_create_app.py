@@ -30,7 +30,7 @@ class TestCreateAppDefaults:
 
         app = create_app()
         assert app.title == "WhatsHot API"
-        assert app.version == "0.1.0"
+        assert app.version == "0.2.0"
 
     async def test_all_routes_registered(self):
         from whats_hot_api.app import create_app

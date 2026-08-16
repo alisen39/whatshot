@@ -5,7 +5,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
 
-_SOURCE_TREE_VERSION = "0.1.0"
+_SOURCE_TREE_VERSION = "0.2.0"
 
 
 def get_version() -> str:

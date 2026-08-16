@@ -496,25 +496,11 @@ def validate_config(
     type=click.Path(path_type=Path, dir_okay=False),
 )
 def daemon_command(config_path: Path | None) -> None:
-    """Run Scheduler, DuckDB history, Control API, and MCP."""
+    """Run Scheduler, DuckDB history, Backend API, and Control API."""
     try:
         run_daemon(config_path)
     except SchedulerConfigError as exc:
         raise ConfigClickError(str(exc)) from exc
-
-
-@cli.command("mcp")
-@click.option(
-    "--config",
-    "config_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-)
-def mcp_command(config_path: Path | None) -> None:
-    """Run the stdio MCP proxy; Streamable HTTP is served by daemon."""
-    from whats_hot_api.mcp.stdio_proxy import main as run_mcp_proxy
-
-    run_mcp_proxy(config_path)
-
 
 def _history_output(
     value: dict[str, Any],

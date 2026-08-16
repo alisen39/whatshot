@@ -12,7 +12,6 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from starlette.types import ASGIApp, Receive, Scope, Send
 
 from whats_hot_api.daemon.backend_v1 import (
     BOARD_KEY_VERSION,
@@ -39,71 +38,18 @@ class CurrentFetchBody(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
 
 
-class _ReloadableMcpApp:
-    def __init__(self) -> None:
-        self.current: ASGIApp | None = None
-
-    async def __call__(
-        self,
-        scope: Scope,
-        receive: Receive,
-        send: Send,
-    ) -> None:
-        if self.current is None:
-            await JSONResponse(
-                {
-                    "error": {
-                        "code": "MCP_UNAVAILABLE",
-                        "message": "MCP server is not running.",
-                    }
-                },
-                status_code=503,
-            )(scope, receive, send)
-            return
-        await self.current(scope, receive, send)
-
-
 def create_daemon_app(
     config: AppConfig,
     *,
     fetch_service: FetchService,
 ) -> FastAPI:
     runtime = DaemonRuntime(config=config, fetch_service=fetch_service)
-    mcp_proxy = _ReloadableMcpApp()
-
-    def build_mcp():
-        from whats_hot_api.mcp.backend import RuntimeMcpBackend
-        from whats_hot_api.mcp.server import build_mcp_server
-
-        server = build_mcp_server(
-            RuntimeMcpBackend(runtime),
-            max_result_items=config.mcp.max_result_items,
-            default_history_days=config.mcp.default_history_days,
-            max_history_days=config.mcp.max_history_days,
-        )
-        http_app = server.streamable_http_app(
-            streamable_http_path=config.mcp.streamable_http_path,
-            json_response=True,
-            stateless_http=True,
-            host=config.daemon.bind,
-        )
-        return server, http_app
-
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await runtime.start()
         try:
-            if not config.mcp.enabled:
-                yield
-            else:
-                mcp_server, mcp_http_app = build_mcp()
-                mcp_proxy.current = mcp_http_app
-                app.state.mcp_server = mcp_server
-                async with mcp_server.session_manager.run():
-                    yield
+            yield
         finally:
-            mcp_proxy.current = None
-            app.state.mcp_server = None
             await runtime.stop()
 
     app = FastAPI(
@@ -114,7 +60,6 @@ def create_daemon_app(
         lifespan=lifespan,
     )
     app.state.daemon_runtime = runtime
-    app.state.mcp_server = None
     app.include_router(
         create_backend_v1_router(
             config,
@@ -358,8 +303,5 @@ def create_daemon_app(
             },
             status_code=status,
         )
-
-    if config.mcp.enabled:
-        app.mount("/", mcp_proxy)
 
     return app

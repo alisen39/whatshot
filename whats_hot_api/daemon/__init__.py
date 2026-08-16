@@ -1,1 +1,1 @@
-"""Standalone daemon owning Scheduler, DuckDB, history queries, and MCP."""
+"""Standalone daemon owning Scheduler, DuckDB, and Backend APIs."""

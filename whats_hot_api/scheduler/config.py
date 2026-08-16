@@ -77,9 +77,7 @@ class SchedulerSettings:
 
 
 @dataclass(frozen=True, slots=True)
-class McpSettings:
-    enabled: bool = True
-    streamable_http_path: str = "/mcp"
+class BackendApiSettings:
     max_result_items: int = 200
     default_history_days: int = 7
     max_history_days: int = 365
@@ -103,7 +101,7 @@ class AppConfig:
     daemon: DaemonSettings = field(default_factory=DaemonSettings)
     storage: StorageSettings = field(default_factory=StorageSettings)
     scheduler: SchedulerSettings = field(default_factory=SchedulerSettings)
-    mcp: McpSettings = field(default_factory=McpSettings)
+    backend_api: BackendApiSettings = field(default_factory=BackendApiSettings)
     jobs: tuple[SchedulerJob, ...] = ()
 
     def __post_init__(self) -> None:
@@ -152,7 +150,7 @@ def load_config(
     daemon_raw = _table(raw, "daemon")
     storage_raw = _table(raw, "storage")
     scheduler_raw = _table(raw, "scheduler")
-    mcp_raw = _table(raw, "mcp")
+    backend_api_raw = _table(raw, "backend_api")
 
     daemon = DaemonSettings(
         bind=str(daemon_raw.get("bind", "127.0.0.1")),
@@ -232,36 +230,29 @@ def load_config(
             3600,
         ),
     )
-    mcp = McpSettings(
-        enabled=_require_bool(
-            mcp_raw.get("enabled", True),
-            "mcp.enabled",
-        ),
-        streamable_http_path=str(mcp_raw.get("streamable_http_path", "/mcp")),
+    backend_api = BackendApiSettings(
         max_result_items=_bounded_int(
-            mcp_raw.get("max_result_items", 200),
-            "mcp.max_result_items",
+            backend_api_raw.get("max_result_items", 200),
+            "backend_api.max_result_items",
             1,
             200,
         ),
         default_history_days=_bounded_int(
-            mcp_raw.get("default_history_days", 7),
-            "mcp.default_history_days",
+            backend_api_raw.get("default_history_days", 7),
+            "backend_api.default_history_days",
             1,
             365,
         ),
         max_history_days=_bounded_int(
-            mcp_raw.get("max_history_days", 365),
-            "mcp.max_history_days",
+            backend_api_raw.get("max_history_days", 365),
+            "backend_api.max_history_days",
             1,
             365,
         ),
     )
-    if not mcp.streamable_http_path.startswith("/"):
-        raise SchedulerConfigError("mcp.streamable_http_path must start with '/'.")
-    if mcp.default_history_days > mcp.max_history_days:
+    if backend_api.default_history_days > backend_api.max_history_days:
         raise SchedulerConfigError(
-            "mcp.default_history_days must not exceed max_history_days."
+            "backend_api.default_history_days must not exceed max_history_days."
         )
 
     jobs_raw = scheduler_raw.get("jobs", [])
@@ -275,7 +266,7 @@ def load_config(
         daemon=daemon,
         storage=storage,
         scheduler=scheduler,
-        mcp=mcp,
+        backend_api=backend_api,
         jobs=jobs,
     )
 

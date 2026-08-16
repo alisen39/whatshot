@@ -1,4 +1,4 @@
-"""Single route execution path used by HTTP, CLI, Scheduler, and MCP."""
+"""Single route execution path used by HTTP, CLI, Scheduler, and Backend APIs."""
 
 from __future__ import annotations
 
