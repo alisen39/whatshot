@@ -100,6 +100,36 @@ GET /categories
 }
 ```
 
+金价路由使用原生报价口径；币种和单位属于每条报价，Core 不做汇率或重量换算：
+
+```text
+GET /lukfook/mainland
+GET /lukfook/hong-kong
+GET /chow-taifook-hk/hot
+```
+
+```json
+{
+  "id": "gold-jewellery",
+  "title": "999.9饰金",
+  "metal": "gold",
+  "quotes": [
+    {
+      "quoteType": "retail_sell",
+      "label": "销售价",
+      "price": 1319.5,
+      "currency": "HKD",
+      "unit": "gram",
+      "sourceQuoteTime": "2026-08-10T18:28:12+08:00",
+      "sourceQuoteTimeTrusted": true
+    }
+  ]
+}
+```
+
+`sellPrice` / `recyclePrice` 暂时保留给旧客户端，但只会映射人民币/克报价。历史金价
+序列按 `board + item + quoteType + currency + unit` 分开保存。
+
 ## 缓存配置
 
 Core API 从 `.env` 读取缓存和上游请求配置：

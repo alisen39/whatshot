@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from whats_hot_api.models import GoldItem, ListItem, NewsFlashItem, RouterData
+from whats_hot_api.models import (
+    GoldItem,
+    GoldQuote,
+    ListItem,
+    NewsFlashItem,
+    RouterData,
+)
 
 
 def test_gold_item_has_independent_contract():
@@ -16,7 +22,45 @@ def test_gold_item_has_independent_contract():
     dumped = item.model_dump()
     assert dumped["sellPrice"] == 1262
     assert dumped["recyclePrice"] == 879
+    assert [quote["quoteType"] for quote in dumped["quotes"]] == [
+        "retail_sell",
+        "buyback",
+    ]
     assert "hot" not in dumped
+
+
+def test_gold_quote_preserves_decimal_currency_unit_and_time():
+    item = GoldItem(
+        id="gold-jewellery",
+        title="999.9饰金",
+        url="https://example.com/gold",
+        quotes=[
+            GoldQuote(
+                quoteType="retail_sell",
+                label="销售价",
+                price="1,319.5",
+                currency="hkd",
+                unit="gram",
+                sourceQuoteTime="2026-08-10T18:28:12+08:00",
+                sourceQuoteTimeTrusted=True,
+            ),
+            GoldQuote(
+                quoteType="retail_sell",
+                label="销售价",
+                price="49388",
+                currency="HKD",
+                unit="tael",
+                sourceQuoteTime="2026-08-10T18:28:12+08:00",
+                sourceQuoteTimeTrusted=True,
+            ),
+        ],
+    )
+
+    dumped = item.model_dump()
+    assert dumped["quotes"][0]["price"] == 1319.5
+    assert dumped["quotes"][0]["currency"] == "HKD"
+    assert dumped["quotes"][1]["price"] == 49388
+    assert item.sellPrice is None
 
 
 def test_newsflash_item_has_independent_contract():

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from collections import namedtuple
 from datetime import UTC, datetime
 from pathlib import Path
@@ -86,7 +85,16 @@ def _create_v1_fixture(
             1,
         ),
     ]
-    for capture_id, run_key, site, board_key, path_type, params, kind, count in captures:
+    for (
+        capture_id,
+        run_key,
+        site,
+        board_key,
+        path_type,
+        params,
+        kind,
+        count,
+    ) in captures:
         connection.execute(
             """
             INSERT INTO captures (
@@ -237,10 +245,14 @@ def test_v1_fixture_migrates_with_backup_backfill_and_validation(
     assert [(row[0], row[1], row[2]) for row in migrations] == [
         (1, "initial_history_schema", "completed"),
         (2, "evidence_identity_and_search", "completed"),
+        (3, "structured_gold_quotes", "completed"),
     ]
     backup = Path(migrations[1][3])
     assert backup.is_file()
     assert hashlib.sha256(backup.read_bytes()).hexdigest() == migrations[1][4]
+    gold_backup = Path(migrations[2][3])
+    assert gold_backup.is_file()
+    assert hashlib.sha256(gold_backup.read_bytes()).hexdigest() == migrations[2][4]
     assert connection.execute(
         "SELECT capture_id, board_key FROM captures ORDER BY capture_id"
     ).fetchall() == [
@@ -274,11 +286,14 @@ def test_v1_fixture_migrates_with_backup_backfill_and_validation(
         ("ＡＩ  NEWS", "ai news strasse"),
         ("第二条", "第二条 openai 发布 gpt"),
     ]
-    assert connection.execute(
-        """
+    assert (
+        connection.execute(
+            """
         SELECT search_text_normalized FROM newsflash_occurrences
         """
-    ).fetchone()[0] == "1 热点 正文内容"
+        ).fetchone()[0]
+        == "1 热点 正文内容"
+    )
     connection.close()
 
     backups_before = sorted(tmp_path.glob("legacy.duckdb.pre-v2.*.bak"))
@@ -391,9 +406,12 @@ def test_failed_index_finalizer_blocks_writer_and_resumes_idempotently(
             SchedulerDuckDBWriter(database)
 
     connection = duckdb.connect(str(database), read_only=True)
-    assert connection.execute(
-        "SELECT status FROM schema_migrations WHERE version = 2"
-    ).fetchone()[0] == "failed"
+    assert (
+        connection.execute(
+            "SELECT status FROM schema_migrations WHERE version = 2"
+        ).fetchone()[0]
+        == "failed"
+    )
     assert "ingest_sequence" in _columns(database, "hotlist_observations")
     connection.close()
 
@@ -401,11 +419,17 @@ def test_failed_index_finalizer_blocks_writer_and_resumes_idempotently(
     writer.close()
 
     connection = duckdb.connect(str(database), read_only=True)
-    assert connection.execute(
-        "SELECT status FROM schema_migrations WHERE version = 2"
-    ).fetchone()[0] == "completed"
-    assert connection.execute(
-        "SELECT COUNT(DISTINCT ingest_sequence) FROM history_items"
-    ).fetchone()[0] == 4
+    assert (
+        connection.execute(
+            "SELECT status FROM schema_migrations WHERE version = 2"
+        ).fetchone()[0]
+        == "completed"
+    )
+    assert (
+        connection.execute(
+            "SELECT COUNT(DISTINCT ingest_sequence) FROM history_items"
+        ).fetchone()[0]
+        == 4
+    )
     connection.close()
     assert len(list(tmp_path.glob("finalizer-failure.duckdb.pre-v2.*.bak"))) == 1

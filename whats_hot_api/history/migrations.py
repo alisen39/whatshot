@@ -15,7 +15,9 @@ from urllib.parse import parse_qsl
 
 from whats_hot_api.fetch import canonical_board_key
 from whats_hot_api.history.schema import (
+    GOLD_QUOTES_V3_SQL,
     HISTORY_ITEMS_V2_SQL,
+    HISTORY_ITEMS_V3_SQL,
     SCHEMA_MIGRATIONS_SQL,
     SCHEMA_V1_SQL,
     SCHEMA_VERSION,
@@ -83,6 +85,100 @@ def _finalize_v2(connection: Any) -> None:
     connection.execute(V2_INDEXES_SQL)
 
 
+def _apply_v3(connection: Any) -> None:
+    connection.execute("DROP VIEW IF EXISTS history_items")
+    connection.execute("DROP INDEX IF EXISTS idx_gold_site_board_sequence")
+    connection.execute("DROP INDEX IF EXISTS idx_gold_ingest_sequence")
+    connection.execute(GOLD_QUOTES_V3_SQL)
+    connection.execute(
+        """
+        INSERT INTO gold_quote_observations (
+            capture_id, site, board_key, observed_at, source_item_id,
+            quote_index, series_key, quote_type, label, price, currency,
+            unit, source_quote_at, source_quote_time_trusted
+        )
+        SELECT
+            capture_id,
+            site,
+            board_key,
+            observed_at,
+            source_item_id,
+            0,
+            board_key || ':' || source_item_id || ':retail_sell:CNY:gram',
+            'retail_sell',
+            '销售价',
+            sell_price,
+            'CNY',
+            'gram',
+            price_date,
+            price_date IS NOT NULL
+        FROM gold_observations
+        WHERE sell_price IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM gold_quote_observations q
+              WHERE q.capture_id = gold_observations.capture_id
+                AND q.source_item_id = gold_observations.source_item_id
+                AND q.quote_index = 0
+          )
+        UNION ALL
+        SELECT
+            capture_id,
+            site,
+            board_key,
+            observed_at,
+            source_item_id,
+            1,
+            board_key || ':' || source_item_id || ':buyback:CNY:gram',
+            'buyback',
+            '回收价',
+            recycle_price,
+            'CNY',
+            'gram',
+            price_date,
+            price_date IS NOT NULL
+        FROM gold_observations
+        WHERE recycle_price IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM gold_quote_observations q
+              WHERE q.capture_id = gold_observations.capture_id
+                AND q.source_item_id = gold_observations.source_item_id
+                AND q.quote_index = 1
+          )
+        """
+    )
+    connection.execute(HISTORY_ITEMS_V3_SQL)
+    columns = {
+        row[0]
+        for row in connection.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'main'
+              AND table_name = 'gold_observations'
+            """
+        ).fetchall()
+    }
+    if not {"metal", "quotes_json"}.issubset(columns):
+        raise MigrationError("Gold quote migration did not add required columns.")
+
+
+def _finalize_v3(connection: Any) -> None:
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_gold_site_board_sequence
+        ON gold_observations(site, board_key, observed_at, ingest_sequence);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_gold_ingest_sequence
+        ON gold_observations(ingest_sequence);
+
+        CREATE INDEX IF NOT EXISTS idx_gold_quote_series_time
+        ON gold_quote_observations(site, board_key, series_key, observed_at);
+        """
+    )
+
+
 MIGRATIONS = (
     Migration(1, "initial_history_schema", _apply_v1, backup=False),
     Migration(
@@ -90,6 +186,12 @@ MIGRATIONS = (
         "evidence_identity_and_search",
         _apply_v2,
         finalize=_finalize_v2,
+    ),
+    Migration(
+        3,
+        "structured_gold_quotes",
+        _apply_v3,
+        finalize=_finalize_v3,
     ),
 )
 
@@ -181,18 +283,20 @@ class MigrationRunner:
                     f"Database schema version {version} is newer than this application."
                 )
             if name != migration.name:
-                raise MigrationError(
-                    f"Migration {version} name mismatch: {name!r}."
-                )
+                raise MigrationError(f"Migration {version} name mismatch: {name!r}.")
             if status not in {"running", "completed", "failed"}:
                 raise MigrationError(
                     f"Migration {version} has invalid status {status!r}."
                 )
-        completed = [version for version, _name, status in rows if status == "completed"]
+        completed = [
+            version for version, _name, status in rows if status == "completed"
+        ]
         if completed and completed != list(range(1, max(completed) + 1)):
             raise MigrationError("Completed migrations are not a contiguous sequence.")
 
-    def _migration_row(self, version: int) -> tuple[str, str, str | None, str | None] | None:
+    def _migration_row(
+        self, version: int
+    ) -> tuple[str, str, str | None, str | None] | None:
         row = self.connection.execute(
             """
             SELECT name, status, backup_path, backup_sha256
@@ -385,9 +489,7 @@ def _add_v2_columns(connection: Any) -> None:
     for table in _EVIDENCE_TABLES:
         columns = _table_columns(connection, table)
         if "ingest_sequence" not in columns:
-            connection.execute(
-                f"ALTER TABLE {table} ADD COLUMN ingest_sequence BIGINT"
-            )
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN ingest_sequence BIGINT")
         if "search_text_normalized" not in columns:
             connection.execute(
                 f"ALTER TABLE {table} ADD COLUMN search_text_normalized VARCHAR"
@@ -432,14 +534,13 @@ def _canonical_legacy_key(
     try:
         decoded = json.loads(params_json)
     except json.JSONDecodeError as exc:
-        raise MigrationAmbiguityError("captures.params_json is not valid JSON.") from exc
+        raise MigrationAmbiguityError(
+            "captures.params_json is not valid JSON."
+        ) from exc
     if not isinstance(decoded, dict):
         raise MigrationAmbiguityError("captures.params_json must be a JSON object.")
     if any(
-        not isinstance(key, str)
-        or not key
-        or not isinstance(value, str)
-        or not value
+        not isinstance(key, str) or not key or not isinstance(value, str) or not value
         for key, value in decoded.items()
     ):
         raise MigrationAmbiguityError(
@@ -678,7 +779,9 @@ def _validate_v2(
     if tuple(stats) != (total, total, expected_min, expected_max, 0):
         raise MigrationError(f"Evidence v2 validation failed: {tuple(stats)!r}.")
 
-    expected = {capture_id: canonical for capture_id, _site, _old, canonical in mappings}
+    expected = {
+        capture_id: canonical for capture_id, _site, _old, canonical in mappings
+    }
     actual = dict(
         connection.execute("SELECT capture_id, board_key FROM captures").fetchall()
     )
@@ -696,9 +799,7 @@ def _validate_v2(
         """
     ).fetchone()[0]
     if mismatches:
-        raise MigrationError(
-            f"{mismatches} evidence rows failed board key validation."
-        )
+        raise MigrationError(f"{mismatches} evidence rows failed board key validation.")
 
 
 def _table_columns(connection: Any, table: str) -> set[str]:

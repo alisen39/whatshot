@@ -24,22 +24,18 @@ from whats_hot_api.fetch import (
     FetchUpstreamError,
     SourceDescriptor,
 )
-from whats_hot_api.models import ListItem, RouterData
+from whats_hot_api.models import GoldItem, GoldQuote, ListItem, RouterData
 from whats_hot_api.scheduler.config import (
     AppConfig,
-    DaemonSettings,
     BackendApiSettings,
+    DaemonSettings,
     SchedulerSettings,
     StorageSettings,
 )
 
 NOW = datetime(2026, 8, 13, 8, 30, tzinfo=UTC)
 CONTRACT_SCHEMAS = (
-    Path(__file__).parents[2]
-    / "whatshot-mcp"
-    / "contracts"
-    / "jsonschema"
-    / "v1"
+    Path(__file__).parents[2] / "whatshot-mcp" / "contracts" / "jsonschema" / "v1"
 )
 
 
@@ -124,6 +120,43 @@ class _ContractFetchService:
             raise FetchUpstreamError("secret upstream response")
         self.describe_source(request.site)
         from_cache = request.cache_policy is CachePolicy.ONLY
+        if request.site == "z-gold":
+            return FetchResult(
+                request=request,
+                observed_at=NOW,
+                data=RouterData(
+                    kind="gold",
+                    name="z-gold",
+                    title="Gold Results",
+                    type="中国香港 · HKD",
+                    total=1,
+                    fromCache=from_cache,
+                    updateTime=NOW.isoformat(),
+                    data=[
+                        GoldItem(
+                            id="gold-jewellery",
+                            title="999.9饰金",
+                            url="https://example.com/gold",
+                            quotes=[
+                                GoldQuote(
+                                    quoteType="retail_sell",
+                                    label="销售价",
+                                    price="1319.5",
+                                    currency="HKD",
+                                    unit="gram",
+                                ),
+                                GoldQuote(
+                                    quoteType="retail_sell",
+                                    label="销售价",
+                                    price="49388",
+                                    currency="HKD",
+                                    unit="tael",
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            )
         return FetchResult(
             request=request,
             observed_at=NOW,
@@ -184,7 +217,7 @@ class _RecordingHistoryService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple, dict]] = []
 
-    async def call(self, method: str, *args, **kwargs):  # noqa: ANN003, ANN202
+    async def call(self, method: str, *args, **kwargs):
         self.calls.append((method, args, kwargs))
         coverage = {
             "historyEnabled": True,
@@ -306,9 +339,7 @@ async def test_sources_are_stable_filterable_and_cursor_bound(
     ]
     assert mismatched.status_code == 400
     assert mismatched.json()["error"]["code"] == "INVALID_CURSOR"
-    assert [row["site"] for row in filtered.json()["data"]["sources"]] == [
-        "z-gold"
-    ]
+    assert [row["site"] for row in filtered.json()["data"]["sources"]] == ["z-gold"]
 
 
 async def test_source_detail_enumerates_canonical_boards_and_unknown_error(
@@ -421,6 +452,31 @@ async def test_current_resolves_default_dynamic_and_freshness(
     assert service.requests[1].params == {"province": "北京市 海淀"}
 
 
+async def test_current_gold_exposes_native_quotes_and_series_keys(
+    tmp_path: Path,
+) -> None:
+    service = _ContractFetchService()
+    app, client = await _client(tmp_path, service)
+    async with app.router.lifespan_context(app), client:
+        response = await client.post(
+            "/api/v1/current",
+            json={"site": "z-gold"},
+        )
+
+    assert response.status_code == 200
+    item = response.json()["data"]["items"][0]
+    assert item["extra"]["metal"] == "gold"
+    assert item["extra"].get("sellPrice") is None
+    assert [quote["price"] for quote in item["extra"]["quotes"]] == [
+        1319.5,
+        49388,
+    ]
+    assert [quote["seriesKey"] for quote in item["extra"]["quotes"]] == [
+        "hot:gold-jewellery:retail_sell:HKD:gram",
+        "hot:gold-jewellery:retail_sell:HKD:tael",
+    ]
+
+
 async def test_current_rejects_unknown_board_extra_fields_and_backend_limit(
     tmp_path: Path,
 ) -> None:
@@ -476,9 +532,7 @@ async def test_batch_returns_partial_errors_without_failing_successes(
         )
 
     assert response.status_code == 200
-    assert [row["site"] for row in response.json()["data"]["results"]] == [
-        "alpha"
-    ]
+    assert [row["site"] for row in response.json()["data"]["results"]] == ["alpha"]
     assert response.json()["data"]["errors"] == [
         {
             "site": "missing",

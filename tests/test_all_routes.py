@@ -61,6 +61,16 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/yystv", "hot", None, "游研社"),
     ("/gameres", "hot", None, "GameRes"),
     ("/zdf", "hot", None, "周大福-金价实时行情"),
+    ("/chow-taifook-hk", "hot", None, "周大福香港-港币品牌金价"),
+    ("/china-gold", "hot", None, "中国黄金-人民币品牌金价"),
+    ("/lukfook", "mainland", None, "六福珠宝-中国内地人民币品牌金价"),
+    ("/lukfook", "hong-kong", None, "六福珠宝-中国香港港币品牌金价"),
+    ("/emperor-jewellery", "hot", None, "英皇珠宝-港币品牌金价"),
+    ("/caibai", "hot", None, "菜百首饰-人民币品牌金价"),
+    ("/chowsangsang", "hot", None, "周生生-人民币品牌金价"),
+    ("/laofengxiang-gd", "hot", None, "老凤祥广东-人民币品牌金价"),
+    ("/zhouliufu", "hot", None, "周六福-人民币品牌金价"),
+    ("/baoqing", "hot", None, "宝庆银楼-人民币品牌金价"),
     ("/cankaoxiaoxi", "hot", None, "参考消息-资讯"),
     ("/solidot", "hot", None, "Solidot-资讯"),
     ("/sputniknewscn", "hot", None, "俄罗斯卫星通讯社-快报"),
@@ -360,7 +370,9 @@ async def test_robots_txt_not_registered(client: AsyncClient):
     ROUTE_CASES,
     ids=[_make_id(r, t, q, d) for r, t, q, d in ROUTE_CASES],
 )
-async def test_route(client: AsyncClient, route: str, type_path: str, qs: str | None, desc: str):
+async def test_route(
+    client: AsyncClient, route: str, type_path: str, qs: str | None, desc: str
+):
     """
     Test a single route+params combination.
 
@@ -395,7 +407,9 @@ async def test_route(client: AsyncClient, route: str, type_path: str, qs: str | 
     if body["code"] == 500:
         pytest.skip(f"Upstream error: {body.get('message', '')[:120]}")
 
-    assert body["code"] == 200, f"code={body['code']} for {url}: {body.get('message', '')}"
+    assert body["code"] == 200, (
+        f"code={body['code']} for {url}: {body.get('message', '')}"
+    )
 
     # Validate response structure
     assert "name" in body, f"Missing 'name' for {url}"

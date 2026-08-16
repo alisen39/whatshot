@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import time
+from decimal import Decimal, InvalidOperation
 
 from starlette.requests import Request
 
 from whats_hot_api.models import GoldItem, RouterData
-from whats_hot_api.utils.get_time import get_time
+from whats_hot_api.routes.gold._common import gold_item, gold_quote
 from whats_hot_api.utils.http_client import get
 
 ROUTE_NAME = "zdf"
@@ -21,12 +22,13 @@ ROUTE_META: dict = {
 }
 
 
-def _to_int(value: object) -> int | None:
+def _to_decimal(value: object) -> Decimal | None:
     if value is None or value == "":
         return None
     try:
-        return int(round(float(value)))
-    except (TypeError, ValueError):
+        parsed = Decimal(str(value).replace(",", ""))
+        return parsed if parsed.is_finite() and parsed > 0 else None
+    except (InvalidOperation, TypeError, ValueError):
         return None
 
 
@@ -46,14 +48,6 @@ def _item_id(display_name: str, category_group: int, sort_order: int) -> str:
     identity = f"{category_group}|{sort_order}|{display_name}"
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
     return f"category-{category_group}-{sort_order}-{digest}"
-
-
-def _price_text(sell_price: int | None, recycle_price: int | None = None) -> str:
-    if sell_price is None and recycle_price is not None:
-        return f"回收价：{recycle_price} 元/克"
-    if recycle_price is None:
-        return f"销售价：{sell_price or 0} 元/克"
-    return f"销售价：{sell_price or 0} 元/克，回收价：{recycle_price} 元/克"
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
@@ -101,11 +95,19 @@ async def _get_list(no_cache: bool) -> dict:
     payload = result.data or {}
     gold_price = payload.get("data") or {}
     if payload.get("code") != 200 or not isinstance(gold_price, dict):
-        return {"from_cache": result.from_cache, "update_time": result.update_time, "data": []}
+        return {
+            "from_cache": result.from_cache,
+            "update_time": result.update_time,
+            "data": [],
+        }
 
     groups = gold_price.get("goldPriceDailyListVO")
     if not isinstance(groups, list):
-        return {"from_cache": result.from_cache, "update_time": result.update_time, "data": []}
+        return {
+            "from_cache": result.from_cache,
+            "update_time": result.update_time,
+            "data": [],
+        }
 
     sortable_items: list[tuple[int, int, int, GoldItem]] = []
     for group_index, group in enumerate(groups):
@@ -120,7 +122,7 @@ async def _get_list(no_cache: bool) -> dict:
             if item.get("isEnabled") is False or item.get("isShowInFrontend") is False:
                 continue
             display_name = str(item.get("displayName") or "").strip()
-            price = _to_int(item.get("goldPrice"))
+            price = _to_decimal(item.get("goldPrice"))
             if not display_name or price is None:
                 continue
             second_name = str(item.get("secondDisplayName") or "").strip()
@@ -129,24 +131,45 @@ async def _get_list(no_cache: bool) -> dict:
             category_name = str(
                 item.get("categoryName") or group.get("categoryName") or ""
             )
-            is_recycle = category_group == 3 or "回收" in category_name or "回收" in display_name
-            sell_price = None if is_recycle else price
-            recycle_price = price if is_recycle else None
+            is_recycle = (
+                category_group == 3 or "回收" in category_name or "回收" in display_name
+            )
+            is_exchange = category_group == 2 or "增值" in category_name
+            quote_type = (
+                "buyback"
+                if is_recycle
+                else "exchange"
+                if is_exchange
+                else "retail_sell"
+            )
+            normalized_item = gold_item(
+                item_id=_item_id(display_name, category_group, sort_order),
+                title=f"{display_name}{second_name}",
+                url=SOURCE_LINK,
+                quote_time=item.get("todayDate"),
+                quotes=[
+                    gold_quote(
+                        quote_type=quote_type,
+                        value=price,
+                        currency="CNY",
+                        unit="gram",
+                        quote_time=item.get("todayDate"),
+                    )
+                ],
+            )
+            if normalized_item is None:
+                continue
             sortable_items.append(
                 (
                     category_group,
                     sort_order,
                     item_index,
-                    GoldItem(
-                        id=_item_id(display_name, category_group, sort_order),
-                        title=f"{display_name}{second_name}",
-                        desc=_price_text(sell_price, recycle_price),
-                        timestamp=get_time(item.get("todayDate")),
-                        url=SOURCE_LINK,
-                        sellPrice=sell_price,
-                        recyclePrice=recycle_price,
-                    ),
+                    normalized_item,
                 )
             )
     data = [entry[3] for entry in sorted(sortable_items, key=lambda entry: entry[:3])]
-    return {"from_cache": result.from_cache, "update_time": result.update_time, "data": data}
+    return {
+        "from_cache": result.from_cache,
+        "update_time": result.update_time,
+        "data": data,
+    }

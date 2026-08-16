@@ -675,9 +675,7 @@ def _resolve_history_target(
 
     canonical = _canonical_history_board_key(board_key)
     candidates = (
-        (descriptor,)
-        if descriptor is not None
-        else tuple(fetch_service.list_sources())
+        (descriptor,) if descriptor is not None else tuple(fetch_service.list_sources())
     )
     for candidate in candidates:
         try:
@@ -799,7 +797,7 @@ def _current_data(result: FetchResult, *, board_key: str) -> dict[str, Any]:
         "observedAt": _iso_datetime(result.observed_at),
         "sourceMode": "memory_cache" if result.from_cache else "live",
         "items": [
-            _current_item(item, rank=rank)
+            _current_item(item, rank=rank, board_key=board_key)
             for rank, item in enumerate(result.data.data, start=1)
         ],
     }
@@ -809,6 +807,7 @@ def _current_item(
     item: ListItem | NewsFlashItem | GoldItem,
     *,
     rank: int,
+    board_key: str,
 ) -> dict[str, Any]:
     if not item.id or not item.title:
         raise BackendContractError(
@@ -835,6 +834,17 @@ def _current_item(
     elif isinstance(item, GoldItem):
         description = item.desc
         extra = {
+            "metal": item.metal,
+            "quotes": [
+                {
+                    **quote.model_dump(),
+                    "seriesKey": (
+                        f"{board_key}:{item.id}:{quote.quoteType}:"
+                        f"{quote.currency}:{quote.unit}"
+                    ),
+                }
+                for quote in item.quotes
+            ],
             "sellPrice": item.sellPrice,
             "recyclePrice": item.recyclePrice,
         }
@@ -866,7 +876,7 @@ def _iso_datetime(value: datetime | str) -> str:
     if isinstance(value, datetime):
         parsed = value
     else:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.isoformat()

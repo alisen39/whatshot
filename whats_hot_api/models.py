@@ -24,12 +24,32 @@
 - 选填：可不提供，取默认值（通常为 ``None`` / 空集合）。
 """
 
+from __future__ import annotations
+
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 ContentKind = Literal["hotlist", "newsflash", "gold"]
 ContentStatus = Literal["full", "summary", "truncated"]
+GoldQuoteType = Literal[
+    "retail_sell",
+    "buyback",
+    "exchange",
+    "exchange_alt",
+    "exchange_jewellery",
+    "benchmark",
+    "spot",
+]
+GoldUnit = Literal["gram", "tael", "kilogram"]
+GoldMetal = Literal["gold", "platinum", "silver"]
 
 # 秒/毫秒判断阈值：小于此值视为秒级，×1000 补齐为毫秒。
 # 取 10^12（约 2001-09 的毫秒值），与前端 normalizeTimestampMs、扩展包 hot_fetcher 对齐。
@@ -47,7 +67,7 @@ def _coerce_timestamp_ms(value: object) -> int | None:
     if not value:
         return None
     try:
-        val = int(round(float(value)))
+        val = round(float(value))
     except (ValueError, TypeError):
         return None
     if val <= 0:
@@ -83,7 +103,7 @@ class ListItem(BaseModel):
         if v is None:
             return None
         try:
-            return int(round(float(v)))
+            return round(float(v))
         except (ValueError, TypeError):
             return None
 
@@ -100,19 +120,72 @@ class ListItem(BaseModel):
         return v
 
 
+class GoldQuote(BaseModel):
+    """品牌或市场发布的一条原生报价。
+
+    币种和计量单位共同构成报价身份；Core 不做隐式汇率或重量换算。
+    """
+
+    quoteType: GoldQuoteType
+    label: str
+    price: Decimal
+    currency: str
+    unit: GoldUnit
+    sourceQuoteTime: str | None = None
+    sourceQuoteTimeTrusted: bool = False
+
+    @field_validator("price", mode="before")
+    @classmethod
+    def coerce_price(cls, value: object) -> Decimal:
+        try:
+            normalized = Decimal(str(value).replace(",", ""))
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValueError("Gold quote price must be numeric.") from exc
+        if not normalized.is_finite() or normalized <= 0:
+            raise ValueError("Gold quote price must be positive and finite.")
+        return normalized
+
+    @field_serializer("price")
+    def serialize_price(self, value: Decimal) -> int | float:
+        return int(value) if value == value.to_integral_value() else float(value)
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def normalize_currency(cls, value: object) -> str:
+        currency = str(value).strip().upper()
+        if len(currency) != 3 or not currency.isalpha():
+            raise ValueError("Gold quote currency must be a three-letter code.")
+        return currency
+
+    @field_validator("label", "sourceQuoteTime", mode="before")
+    @classmethod
+    def normalize_text(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @model_validator(mode="after")
+    def validate_source_time_trust(self) -> GoldQuote:
+        if self.sourceQuoteTimeTrusted and self.sourceQuoteTime is None:
+            raise ValueError("sourceQuoteTimeTrusted requires a sourceQuoteTime value.")
+        return self
+
+
 class GoldItem(BaseModel):
     """金价类条目（对应 ``kind="gold"``）。
 
-    金价不是热度榜单，价格字段不应借用 ``ListItem.hot`` 表达。销售价与回收价均允许
-    暂时缺失，以兼容上游只提供其中一种价格的品类。
+    ``quotes`` 是正式报价契约。迁移期间保留 ``sellPrice`` / ``recyclePrice``，且只从
+    人民币/克的销售与回收报价生成，避免旧客户端误读港币或「两」报价。
     """
 
     id: str  # 必填：条目唯一标识，自动 str() 强转
     title: str  # 必填：黄金 / 贵金属品类名称
     url: str  # 必填：PC 端链接
     mobileUrl: str | None = None  # 选填：移动端链接
-    sellPrice: int | None = None  # 选填：销售价（元/克）
-    recyclePrice: int | None = None  # 选填：回收价（元/克）
+    metal: GoldMetal = "gold"
+    quotes: list[GoldQuote] = Field(default_factory=list)
+    sellPrice: int | float | None = None  # 兼容字段：人民币/克销售价
+    recyclePrice: int | float | None = None  # 兼容字段：人民币/克回收价
     desc: str | None = None  # 选填：面向展示的价格说明
     timestamp: int | None = None  # 选填：价格日期，Unix 毫秒级整数
 
@@ -123,13 +196,16 @@ class GoldItem(BaseModel):
 
     @field_validator("sellPrice", "recyclePrice", mode="before")
     @classmethod
-    def coerce_price(cls, v: object) -> int | None:
+    def coerce_legacy_price(cls, v: object) -> int | float | None:
         if v is None:
             return None
         try:
-            return int(round(float(v)))
-        except (ValueError, TypeError):
+            value = Decimal(str(v).replace(",", ""))
+        except (InvalidOperation, ValueError, TypeError):
             return None
+        if not value.is_finite() or value <= 0:
+            return None
+        return int(value) if value == value.to_integral_value() else float(value)
 
     @field_validator("timestamp", mode="before")
     @classmethod
@@ -142,6 +218,55 @@ class GoldItem(BaseModel):
         if isinstance(v, str) and not v.strip():
             return None
         return v
+
+    @model_validator(mode="after")
+    def populate_quote_compatibility(self) -> GoldItem:
+        if not self.quotes:
+            source_time = None
+            if self.timestamp is not None:
+                from datetime import UTC, datetime
+
+                source_time = datetime.fromtimestamp(
+                    self.timestamp / 1000, UTC
+                ).isoformat()
+            if self.sellPrice is not None:
+                self.quotes.append(
+                    GoldQuote(
+                        quoteType="retail_sell",
+                        label="销售价",
+                        price=self.sellPrice,
+                        currency="CNY",
+                        unit="gram",
+                        sourceQuoteTime=source_time,
+                        sourceQuoteTimeTrusted=source_time is not None,
+                    )
+                )
+            if self.recyclePrice is not None:
+                self.quotes.append(
+                    GoldQuote(
+                        quoteType="buyback",
+                        label="回收价",
+                        price=self.recyclePrice,
+                        currency="CNY",
+                        unit="gram",
+                        sourceQuoteTime=source_time,
+                        sourceQuoteTimeTrusted=source_time is not None,
+                    )
+                )
+
+        for quote in self.quotes:
+            if quote.currency != "CNY" or quote.unit != "gram":
+                continue
+            legacy_value: int | float = (
+                int(quote.price)
+                if quote.price == quote.price.to_integral_value()
+                else float(quote.price)
+            )
+            if quote.quoteType == "retail_sell" and self.sellPrice is None:
+                self.sellPrice = legacy_value
+            elif quote.quoteType == "buyback" and self.recyclePrice is None:
+                self.recyclePrice = legacy_value
+        return self
 
 
 class NewsFlashItem(BaseModel):
@@ -164,7 +289,9 @@ class NewsFlashItem(BaseModel):
     isImportant: bool = False  # 选填：是否重要，默认否
     tags: list[str] = Field(default_factory=list)  # 选填：标签列表
     images: list[str] = Field(default_factory=list)  # 选填：图片 URL 列表
-    symbols: list[dict[str, Any]] = Field(default_factory=list)  # 选填：关联标的（股票/币种等）
+    symbols: list[dict[str, Any]] = Field(
+        default_factory=list
+    )  # 选填：关联标的（股票/币种等）
     metrics: dict[str, Any] = Field(default_factory=dict)  # 选填：指标数据
     timestamp: int | None = None  # 选填：发布时间，Unix 毫秒级整数
 

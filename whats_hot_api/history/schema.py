@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Version 1 is intentionally retained verbatim so a new database and a legacy
 # database travel through the same ordered migration chain.
@@ -253,6 +253,105 @@ SELECT
     g.price_date AS published_at,
     g.sell_price,
     g.recycle_price
+FROM gold_observations g;
+"""
+
+GOLD_QUOTES_V3_SQL = """
+ALTER TABLE gold_observations ADD COLUMN IF NOT EXISTS metal VARCHAR DEFAULT 'gold';
+ALTER TABLE gold_observations ADD COLUMN IF NOT EXISTS quotes_json JSON;
+
+CREATE TABLE IF NOT EXISTS gold_quote_observations (
+    capture_id VARCHAR NOT NULL,
+    site VARCHAR NOT NULL,
+    board_key VARCHAR NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    source_item_id VARCHAR NOT NULL,
+    quote_index INTEGER NOT NULL,
+    series_key VARCHAR NOT NULL,
+    quote_type VARCHAR NOT NULL,
+    label VARCHAR NOT NULL,
+    price DECIMAL(30, 10) NOT NULL,
+    currency VARCHAR NOT NULL,
+    unit VARCHAR NOT NULL,
+    source_quote_at TIMESTAMPTZ,
+    source_quote_time_trusted BOOLEAN NOT NULL,
+    PRIMARY KEY (capture_id, source_item_id, quote_index)
+);
+
+"""
+
+HISTORY_ITEMS_V3_SQL = """
+CREATE OR REPLACE VIEW history_items AS
+SELECT
+    h.ingest_sequence,
+    h.search_text_normalized,
+    h.capture_id,
+    'hotlist' AS kind,
+    h.site,
+    h.board_key,
+    h.observed_at,
+    h.source_item_id AS item_id,
+    h.position AS rank,
+    h.title,
+    h.url,
+    h.mobile_url,
+    h.hot,
+    h.author AS source,
+    h.description,
+    CAST(NULL AS VARCHAR) AS content,
+    h.published_at,
+    CAST(NULL AS BIGINT) AS sell_price,
+    CAST(NULL AS BIGINT) AS recycle_price,
+    CAST(NULL AS VARCHAR) AS metal,
+    CAST(NULL AS JSON) AS quotes_json
+FROM hotlist_observations h
+UNION ALL
+SELECT
+    o.ingest_sequence,
+    o.search_text_normalized,
+    o.capture_id,
+    'newsflash' AS kind,
+    o.site,
+    o.board_key,
+    o.observed_at,
+    o.source_item_id AS item_id,
+    o.position AS rank,
+    o.title,
+    o.url,
+    o.mobile_url,
+    CAST(NULL AS BIGINT) AS hot,
+    o.source,
+    COALESCE(o.summary, o.content) AS description,
+    o.content,
+    o.published_at,
+    CAST(NULL AS BIGINT) AS sell_price,
+    CAST(NULL AS BIGINT) AS recycle_price,
+    CAST(NULL AS VARCHAR) AS metal,
+    CAST(NULL AS JSON) AS quotes_json
+FROM newsflash_occurrences o
+UNION ALL
+SELECT
+    g.ingest_sequence,
+    g.search_text_normalized,
+    g.capture_id,
+    'gold' AS kind,
+    g.site,
+    g.board_key,
+    g.observed_at,
+    g.source_item_id AS item_id,
+    CAST(NULL AS INTEGER) AS rank,
+    g.title,
+    g.url,
+    CAST(NULL AS VARCHAR) AS mobile_url,
+    CAST(NULL AS BIGINT) AS hot,
+    CAST(NULL AS VARCHAR) AS source,
+    g.description,
+    CAST(NULL AS VARCHAR) AS content,
+    g.price_date AS published_at,
+    g.sell_price,
+    g.recycle_price,
+    g.metal,
+    g.quotes_json
 FROM gold_observations g;
 """
 

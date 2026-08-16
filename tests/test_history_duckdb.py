@@ -13,7 +13,13 @@ from whats_hot_api.history.errors import (
     HistoryCursorExpiredError,
 )
 from whats_hot_api.history.models import CaptureBatch, RunStart
-from whats_hot_api.models import GoldItem, ListItem, NewsFlashItem, RouterData
+from whats_hot_api.models import (
+    GoldItem,
+    GoldQuote,
+    ListItem,
+    NewsFlashItem,
+    RouterData,
+)
 from whats_hot_api.scheduler.storage import SchedulerDuckDBWriter
 
 
@@ -170,6 +176,7 @@ def test_new_database_uses_one_complete_initial_schema(tmp_path: Path) -> None:
     assert versions == [
         (1, "initial_history_schema"),
         (2, "evidence_identity_and_search"),
+        (3, "structured_gold_quotes"),
     ]
     assert "scheduler_jobs" not in tables
     assert "newsflash_item_sightings" not in tables
@@ -500,12 +507,103 @@ def test_gold_observations_and_retention(tmp_path: Path) -> None:
     )
     assert len(page["items"]) == 2
     assert page["items"][0]["title"] == "足金"
+    capture = reader.get_capture("capture-current-gold")
+    assert capture is not None
+    assert [quote["quoteType"] for quote in capture["items"][0]["quotes"]] == [
+        "retail_sell",
+        "buyback",
+    ]
+    trend = reader.get_trend_series(
+        site="gold",
+        board_key="hot",
+        item_id="hot:au9999:retail_sell:CNY:gram",
+        since=now - timedelta(seconds=1),
+        until=now + timedelta(seconds=1),
+    )
+    assert trend["currency"] == "CNY"
+    assert trend["unit"] == "gram"
+    assert trend["series"][0]["averagePrice"] == 800
     reader.close()
 
     writer.apply_retention(180)
     reader = HistoryReader(database)
     assert reader.get_storage_stats()["captures"] == 1
     assert reader.get_storage_stats()["goldRows"] == 1
+    assert reader.get_storage_stats()["goldQuoteRows"] == 2
+    reader.close()
+    writer.close()
+
+
+def test_hong_kong_decimal_quotes_keep_separate_series(tmp_path: Path) -> None:
+    database = tmp_path / "whatshot.duckdb"
+    writer = SchedulerDuckDBWriter(database)
+    now = datetime.now(UTC)
+    request = FetchRequest(site="lukfook", path_type="hong-kong")
+    batch = CaptureBatch(
+        capture_id="capture-hk-gold",
+        run=_run("hk-gold", now),
+        board_key="hong-kong",
+        fetch_result=FetchResult(
+            request=request,
+            observed_at=now,
+            data=RouterData(
+                kind="gold",
+                name="lukfook",
+                title="六福珠宝",
+                type="中国香港 · HKD",
+                total=1,
+                fromCache=False,
+                updateTime=now.isoformat(),
+                data=[
+                    GoldItem(
+                        id="gold-jewellery",
+                        title="999.9饰金",
+                        url="https://example.com/hk-gold",
+                        quotes=[
+                            GoldQuote(
+                                quoteType="retail_sell",
+                                label="销售价",
+                                price="1319.5",
+                                currency="HKD",
+                                unit="gram",
+                            ),
+                            GoldQuote(
+                                quoteType="retail_sell",
+                                label="销售价",
+                                price="49388",
+                                currency="HKD",
+                                unit="tael",
+                            ),
+                        ],
+                    )
+                ],
+            ),
+        ),
+    )
+    writer.persist_capture(batch)
+
+    reader = HistoryReader(database)
+    capture = reader.get_capture("capture-hk-gold")
+    assert capture is not None
+    quotes = capture["items"][0]["quotes"]
+    assert [quote["price"] for quote in quotes] == [1319.5, 49388]
+    assert capture["items"][0].get("sellPrice") is None
+    gram = reader.get_trend_series(
+        site="lukfook",
+        board_key="hong-kong",
+        item_id="hong-kong:gold-jewellery:retail_sell:HKD:gram",
+        since=now - timedelta(seconds=1),
+        until=now + timedelta(seconds=1),
+    )
+    tael = reader.get_trend_series(
+        site="lukfook",
+        board_key="hong-kong",
+        item_id="hong-kong:gold-jewellery:retail_sell:HKD:tael",
+        since=now - timedelta(seconds=1),
+        until=now + timedelta(seconds=1),
+    )
+    assert gram["series"][0]["averagePrice"] == 1319.5
+    assert tael["series"][0]["averagePrice"] == 49388
     reader.close()
     writer.close()
 

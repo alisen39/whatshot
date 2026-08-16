@@ -10,7 +10,7 @@ from whats_hot_api.utils.http_client import RequestResult
 
 @pytest.mark.asyncio
 async def test_zdf_returns_dedicated_gold_items(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-30T00:00:00+00:00",
@@ -21,26 +21,81 @@ async def test_zdf_returns_dedicated_gold_items(monkeypatch):
                         {
                             "categoryName": "零售金价",
                             "goldPriceInfoListVO": [
-                                {"displayName": "足金", "secondDisplayName": "（饰品、工艺品类）", "categoryGroup": 1, "sortOrder": 1, "isEnabled": True, "isShowInFrontend": True, "todayDate": "2026-07-30", "goldPrice": "1262"},
-                                {"displayName": "工艺金章金条类", "secondDisplayName": "", "categoryGroup": 1, "sortOrder": 2, "isEnabled": True, "isShowInFrontend": True, "todayDate": "2026-07-30", "goldPrice": 1200},
-                                {"displayName": "投资黄金类", "secondDisplayName": "", "categoryGroup": 1, "sortOrder": 2, "isEnabled": True, "isShowInFrontend": True, "todayDate": "2026-07-30", "goldPrice": 1068},
+                                {
+                                    "displayName": "足金",
+                                    "secondDisplayName": "（饰品、工艺品类）",
+                                    "categoryGroup": 1,
+                                    "sortOrder": 1,
+                                    "isEnabled": True,
+                                    "isShowInFrontend": True,
+                                    "todayDate": "2026-07-30",
+                                    "goldPrice": "1262",
+                                },
+                                {
+                                    "displayName": "工艺金章金条类",
+                                    "secondDisplayName": "",
+                                    "categoryGroup": 1,
+                                    "sortOrder": 2,
+                                    "isEnabled": True,
+                                    "isShowInFrontend": True,
+                                    "todayDate": "2026-07-30",
+                                    "goldPrice": 1200,
+                                },
+                                {
+                                    "displayName": "投资黄金类",
+                                    "secondDisplayName": "",
+                                    "categoryGroup": 1,
+                                    "sortOrder": 2,
+                                    "isEnabled": True,
+                                    "isShowInFrontend": True,
+                                    "todayDate": "2026-07-30",
+                                    "goldPrice": 1068,
+                                },
                             ],
                         },
-                        {"categoryName": "黄金增值服务", "goldPriceInfoListVO": [{"displayName": "黄金增值服务金价", "categoryGroup": 2, "sortOrder": 3, "isEnabled": True, "isShowInFrontend": True, "todayDate": "2026-07-30", "goldPrice": 1188}]},
-                        {"categoryName": "黄金回收服务", "goldPriceInfoListVO": [{"displayName": "黄金回收服务金价", "categoryGroup": 3, "sortOrder": 4, "isEnabled": True, "isShowInFrontend": True, "todayDate": "2026-07-30", "goldPrice": "879"}]},
+                        {
+                            "categoryName": "黄金增值服务",
+                            "goldPriceInfoListVO": [
+                                {
+                                    "displayName": "黄金增值服务金价",
+                                    "categoryGroup": 2,
+                                    "sortOrder": 3,
+                                    "isEnabled": True,
+                                    "isShowInFrontend": True,
+                                    "todayDate": "2026-07-30",
+                                    "goldPrice": 1188,
+                                }
+                            ],
+                        },
+                        {
+                            "categoryName": "黄金回收服务",
+                            "goldPriceInfoListVO": [
+                                {
+                                    "displayName": "黄金回收服务金价",
+                                    "categoryGroup": 3,
+                                    "sortOrder": 4,
+                                    "isEnabled": True,
+                                    "isShowInFrontend": True,
+                                    "todayDate": "2026-07-30",
+                                    "goldPrice": "879",
+                                }
+                            ],
+                        },
                     ]
                 },
             },
         )
 
     monkeypatch.setattr(zdf, "get", fake_get)
-    request = Request({
-        "type": "http",
-        "method": "GET",
-        "path": "/zdf/default",
-        "query_string": b"",
-        "headers": [],
-    })
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/zdf/default",
+            "query_string": b"",
+            "headers": [],
+        }
+    )
 
     route_data = await zdf.handle_route(request, no_cache=True)
 

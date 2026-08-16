@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -227,8 +228,7 @@ class HistoryReader:
             page_params.append(keyword)
         if snapshot is not None:
             page_clauses.append(
-                "(h.observed_at < ? OR "
-                "(h.observed_at = ? AND h.ingest_sequence > ?))"
+                "(h.observed_at < ? OR (h.observed_at = ? AND h.ingest_sequence > ?))"
             )
             page_params.extend(
                 [
@@ -320,6 +320,66 @@ class HistoryReader:
         now = datetime.now(UTC)
         start, end = self._validated_window(_utc(since), _utc(until), now=now)
         watermark = self._max_watermark()
+        gold_series = self._query(
+            """
+            SELECT q.quote_type, q.currency, q.unit
+            FROM gold_quote_observations q
+            JOIN gold_observations g
+              ON g.capture_id = q.capture_id
+             AND g.source_item_id = q.source_item_id
+            WHERE q.site = ?
+              AND q.board_key = ?
+              AND q.series_key = ?
+              AND g.ingest_sequence <= ?
+            LIMIT 1
+            """,
+            [site, board_key, item_id, watermark],
+        )
+        if gold_series:
+            rows = self._query(
+                f"""
+                SELECT
+                    time_bucket({interval}, q.observed_at) AS "bucketStart",
+                    CAST(MIN(price) AS DOUBLE) AS "minPrice",
+                    CAST(MAX(price) AS DOUBLE) AS "maxPrice",
+                    CAST(AVG(price) AS DOUBLE) AS "averagePrice",
+                    COUNT(*) AS "samples"
+                FROM gold_quote_observations q
+                JOIN gold_observations g
+                  ON g.capture_id = q.capture_id
+                 AND g.source_item_id = q.source_item_id
+                WHERE q.site = ?
+                  AND q.board_key = ?
+                  AND q.series_key = ?
+                  AND q.observed_at >= ?
+                  AND q.observed_at <= ?
+                  AND g.ingest_sequence <= ?
+                GROUP BY 1
+                ORDER BY 1
+                """,
+                [site, board_key, item_id, start, end, watermark],
+            )
+            identity = gold_series[0]
+            return {
+                "site": site,
+                "boardKey": board_key,
+                "itemId": item_id,
+                "bucket": bucket,
+                "since": start,
+                "until": end,
+                "asOf": now,
+                "series": rows,
+                "quoteType": identity["quote_type"],
+                "currency": identity["currency"],
+                "unit": identity["unit"],
+                "coverage": self.get_data_coverage(
+                    site=site,
+                    board_key=board_key,
+                    kind="gold",
+                    watermark=watermark,
+                    as_of=now,
+                ),
+            }
         rows = self._query(
             f"""
             SELECT
@@ -459,13 +519,18 @@ class HistoryReader:
                 content,
                 published_at AS "publishedAt",
                 sell_price AS "sellPrice",
-                recycle_price AS "recyclePrice"
+                recycle_price AS "recyclePrice",
+                metal,
+                CAST(quotes_json AS VARCHAR) AS quotes
             FROM history_items
             WHERE capture_id = ?
             ORDER BY rank NULLS LAST, item_id
             """,
             [capture_id],
         )
+        for item in items:
+            if isinstance(item.get("quotes"), str):
+                item["quotes"] = json.loads(item["quotes"])
         return {**captures[0], "items": items}
 
     def get_storage_stats(self) -> dict[str, Any]:
@@ -482,6 +547,7 @@ class HistoryReader:
                     )
                 ) AS "newsflashItems",
                 (SELECT COUNT(*) FROM gold_observations) AS "goldRows",
+                (SELECT COUNT(*) FROM gold_quote_observations) AS "goldQuoteRows",
                 (SELECT MAX(observed_at) FROM captures) AS "latestObservedAt"
             """
         )
@@ -526,9 +592,7 @@ class HistoryReader:
         if start > end:
             raise HistoryQueryError("since must not be after until")
         if end - start > self._max_range:
-            raise HistoryRangeError(
-                "History range exceeds Backend capability."
-            )
+            raise HistoryRangeError("History range exceeds Backend capability.")
         return start, end
 
     @staticmethod
@@ -571,11 +635,7 @@ class HistoryReader:
                 after_ingest_sequence=last["__ingestSequence"],
             )
         items = [
-            {
-                key: value
-                for key, value in row.items()
-                if key != "__ingestSequence"
-            }
+            {key: value for key, value in row.items() if key != "__ingestSequence"}
             for row in selected
         ]
         return {

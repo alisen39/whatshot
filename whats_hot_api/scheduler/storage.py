@@ -12,8 +12,8 @@ from typing import Any
 
 import orjson
 
-from whats_hot_api.history.models import CaptureBatch, RunStart
 from whats_hot_api.history.migrations import MigrationRunner
+from whats_hot_api.history.models import CaptureBatch, RunStart
 from whats_hot_api.history.text import evidence_search_text
 from whats_hot_api.models import GoldItem, ListItem, NewsFlashItem
 
@@ -43,6 +43,18 @@ def _response_time(value: str, fallback: datetime) -> datetime:
         parsed = datetime.fromisoformat(value)
     except ValueError:
         return fallback
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _source_quote_at(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
@@ -231,6 +243,7 @@ class SchedulerDuckDBWriter:
             for table in (
                 "hotlist_observations",
                 "newsflash_occurrences",
+                "gold_quote_observations",
                 "gold_observations",
             ):
                 self._connection.execute(
@@ -338,8 +351,8 @@ class SchedulerDuckDBWriter:
                 INSERT INTO gold_observations (
                     capture_id, site, board_key, observed_at, source_item_id,
                     title, sell_price, recycle_price, description, price_date,
-                    url, search_text_normalized
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    url, search_text_normalized, metal, quotes_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     batch.capture_id,
@@ -354,8 +367,40 @@ class SchedulerDuckDBWriter:
                     _published_at(raw_item.timestamp),
                     raw_item.url,
                     evidence_search_text(raw_item.title, raw_item.desc),
+                    raw_item.metal,
+                    _json([quote.model_dump() for quote in raw_item.quotes]),
                 ],
             )
+            for quote_index, quote in enumerate(raw_item.quotes):
+                self._connection.execute(
+                    """
+                    INSERT INTO gold_quote_observations (
+                        capture_id, site, board_key, observed_at,
+                        source_item_id, quote_index, series_key, quote_type,
+                        label, price, currency, unit, source_quote_at,
+                        source_quote_time_trusted
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        batch.capture_id,
+                        request.site,
+                        batch.board_key,
+                        batch.fetch_result.observed_at,
+                        raw_item.id,
+                        quote_index,
+                        (
+                            f"{batch.board_key}:{raw_item.id}:{quote.quoteType}:"
+                            f"{quote.currency}:{quote.unit}"
+                        ),
+                        quote.quoteType,
+                        quote.label,
+                        quote.price,
+                        quote.currency,
+                        quote.unit,
+                        _source_quote_at(quote.sourceQuoteTime),
+                        quote.sourceQuoteTimeTrusted,
+                    ],
+                )
 
     def _configure(self) -> None:
         statements = (
