@@ -13,12 +13,14 @@ from whats_hot_api.utils.http_client import get
 ROUTE_NAME = "zdf"
 
 SOURCE_LINK = "https://www.ctfmall.com/"
+_TYPE_MAP = {"mainland": "中国内地 · CNY"}
 
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "周大福",
     "description": "最新金价实时行情，包括饰品金和投资金",
     "link": SOURCE_LINK,
+    "params": {"type": {"name": "报价地区", "type": _TYPE_MAP}},
 }
 
 

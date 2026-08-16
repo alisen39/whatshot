@@ -8,6 +8,12 @@ from whats_hot_api.routes.gold import zdf
 from whats_hot_api.utils.http_client import RequestResult
 
 
+def test_zdf_declares_its_mainland_market_identity():
+    assert zdf.ROUTE_META["params"]["type"]["type"] == {
+        "mainland": "中国内地 · CNY"
+    }
+
+
 @pytest.mark.asyncio
 async def test_zdf_returns_dedicated_gold_items(monkeypatch):
     async def fake_get(**kwargs):

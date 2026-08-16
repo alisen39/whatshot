@@ -167,6 +167,7 @@ async def test_lukfook_maps_hong_kong_native_gram_and_tael_quotes(monkeypatch):
 
     _assert_gold_response(route_data, "lukfook")
     assert route_data.type == "中国香港 · HKD"
+    assert route_data.link == "https://www.lukfook.com/tc/page/goldprice"
     assert len(route_data.data) == 4
     assert sum(len(item.quotes) for item in route_data.data) == 28
     gold = route_data.data[0]

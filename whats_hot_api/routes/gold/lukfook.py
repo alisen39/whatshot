@@ -159,7 +159,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         for item_id, item in grouped.items()
     ]
     return gold_response(
-        route_meta=ROUTE_META,
+        route_meta={**ROUTE_META, "link": source_link},
         result=result,
         items=items,
         type_label=_TYPE_MAP[region],
