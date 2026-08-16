@@ -2,7 +2,7 @@
 
 WhatsHot API 是热榜、实时快讯、金价和 RSS/RSSHub 来源的开源聚合核心。它提供
 330+ 个自动发现路由、JSON/RSS 输出、双层缓存、CLI，以及供独立
-`whats-hot-mcp` 使用的 Backend Contract。
+`whatshot-mcp` 使用的 Backend Contract。
 
 ## 能力边界
 
@@ -164,7 +164,7 @@ run_on_start = true
 
 ## Backend Contract v1
 
-daemon 为独立 `whats-hot-mcp` 提供：
+daemon 为独立 `whatshot-mcp` 提供：
 
 ```text
 GET  /api/v1/capabilities
@@ -265,7 +265,7 @@ uv run pytest tests/test_backend_contract_api.py -v
 uv run pytest tests/test_daemon.py -v
 ```
 
-变更 Backend Contract 时，还必须使用相邻 `whats-hot-mcp/contracts` 制品运行
+变更 Backend Contract 时，还必须使用相邻 `whatshot-mcp/contracts` 制品运行
 Contract 测试。
 
 ## 安全边界

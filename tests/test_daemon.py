@@ -33,7 +33,7 @@ from whats_hot_api.scheduler.config import (
 
 CONTRACT_SCHEMAS = (
     Path(__file__).parents[2]
-    / "whats-hot-mcp"
+    / "whatshot-mcp"
     / "contracts"
     / "jsonschema"
     / "v1"

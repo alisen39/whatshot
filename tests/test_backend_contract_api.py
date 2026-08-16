@@ -36,7 +36,7 @@ from whats_hot_api.scheduler.config import (
 NOW = datetime(2026, 8, 13, 8, 30, tzinfo=UTC)
 CONTRACT_SCHEMAS = (
     Path(__file__).parents[2]
-    / "whats-hot-mcp"
+    / "whatshot-mcp"
     / "contracts"
     / "jsonschema"
     / "v1"
@@ -607,7 +607,7 @@ async def test_contract_responses_validate_against_pinned_workspace_schemas(
     tmp_path: Path,
 ) -> None:
     if not CONTRACT_SCHEMAS.is_dir():
-        pytest.skip("Adjacent whats-hot-mcp Contract artifacts are unavailable")
+        pytest.skip("Adjacent whatshot-mcp Contract artifacts are unavailable")
     jsonschema = pytest.importorskip("jsonschema")
     service = _ContractFetchService()
     app, client = await _client(tmp_path, service)
