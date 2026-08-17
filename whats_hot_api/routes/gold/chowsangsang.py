@@ -21,7 +21,7 @@ SOURCE_LINK = "https://cn.chowsangsang.com/gold-info"
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "周生生",
-    "description": "周生生中国内地足金饰品与生生金宝人民币报价",
+    "description": "周生生中国内地黄金、铂金与生生金宝人民币报价",
     "link": SOURCE_LINK,
 }
 
@@ -74,10 +74,13 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     rows = _extract_prices(str(result.data or ""))
     jewellery_sell = rows.get("G_JW_SELL", {})
     jewellery_buyback = rows.get("G_JW_CNTPTBUY", {})
-    jewellery_exchange = rows.get("G_JW_GPEXCH", {})
-    jewellery_exchange_alt = rows.get("G_JW_JWEXCH", {})
+    jewellery_exchange = rows.get("G_JW_GPEXCH") or rows.get("007", {})
+    jewellery_exchange_alt = rows.get("G_JW_JWEXCH") or rows.get("008", {})
     ingot_sell = rows.get("G_INGOT_SELL", {})
     ingot_buyback = rows.get("G_INGOT_CNTPTBUY", {})
+    gold_button_sell = rows.get("G_RFINGOT_SELL", {})
+    platinum_sell = rows.get("PT950_JW_SELL", {})
+    platinum_exchange = rows.get("PT950_JW_GPEXCH") or rows.get("009", {})
     buyback_note = "回收价由品牌选定的第三方回收方提供，仅供指定门店参考"
     return gold_response(
         route_meta=ROUTE_META,
@@ -140,6 +143,44 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
                         currency="CNY",
                         unit="gram",
                         quote_time=ingot_buyback.get("lastUpdateDate"),
+                    ),
+                ],
+            ),
+            gold_item(
+                item_id="gold-button",
+                title="黄金金扣",
+                url=SOURCE_LINK,
+                quote_time=gold_button_sell.get("lastUpdateDate"),
+                quotes=[
+                    gold_quote(
+                        quote_type="retail_sell",
+                        value=gold_button_sell.get("price"),
+                        currency="CNY",
+                        unit="gram",
+                        quote_time=gold_button_sell.get("lastUpdateDate"),
+                    )
+                ],
+            ),
+            gold_item(
+                item_id="platinum-950",
+                title="Pt950铂金饰品",
+                url=SOURCE_LINK,
+                metal="platinum",
+                quote_time=platinum_sell.get("lastUpdateDate"),
+                quotes=[
+                    gold_quote(
+                        quote_type="retail_sell",
+                        value=platinum_sell.get("price"),
+                        currency="CNY",
+                        unit="gram",
+                        quote_time=platinum_sell.get("lastUpdateDate"),
+                    ),
+                    gold_quote(
+                        quote_type="exchange",
+                        value=platinum_exchange.get("price"),
+                        currency="CNY",
+                        unit="gram",
+                        quote_time=platinum_exchange.get("lastUpdateDate"),
                     ),
                 ],
             ),

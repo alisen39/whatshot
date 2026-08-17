@@ -71,6 +71,7 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/laofengxiang-gd", "hot", None, "老凤祥广东-人民币品牌金价"),
     ("/zhouliufu", "hot", None, "周六福-人民币品牌金价"),
     ("/baoqing", "hot", None, "宝庆银楼-人民币品牌金价"),
+    ("/beijing-rtj", "hot", None, "融通金北京-贵金属实时行情"),
     ("/cankaoxiaoxi", "hot", None, "参考消息-资讯"),
     ("/solidot", "hot", None, "Solidot-资讯"),
     ("/sputniknewscn", "hot", None, "俄罗斯卫星通讯社-快报"),

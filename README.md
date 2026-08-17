@@ -106,6 +106,7 @@ GET /categories
 GET /lukfook/mainland
 GET /lukfook/hong-kong
 GET /chow-taifook-hk/hot
+GET /beijing-rtj/hot
 ```
 
 ```json
@@ -127,7 +128,8 @@ GET /chow-taifook-hk/hot
 }
 ```
 
-`sellPrice` / `recyclePrice` 暂时保留给旧客户端，但只会映射人民币/克报价。历史金价
+`metal` 可区分 `gold` / `silver` / `platinum` / `palladium`。`sellPrice` /
+`recyclePrice` 暂时保留给旧客户端，但只会映射人民币/克报价。历史金价
 序列按 `board + item + quoteType + currency + unit` 分开保存。
 
 ## 缓存配置

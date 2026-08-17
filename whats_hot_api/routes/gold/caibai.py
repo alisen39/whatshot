@@ -5,7 +5,12 @@ import json
 from starlette.requests import Request
 
 from whats_hot_api.models import RouterData
-from whats_hot_api.routes.gold._common import GOLD_CACHE_TTL, gold_item, gold_response
+from whats_hot_api.routes.gold._common import (
+    GOLD_CACHE_TTL,
+    gold_item,
+    gold_quote,
+    gold_response,
+)
 from whats_hot_api.utils.http_client import post
 
 ROUTE_NAME = "caibai"
@@ -15,7 +20,7 @@ _API_URL = "http://111.198.86.222/BAP/OpenApi"
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "菜百首饰",
-    "description": "菜百首饰北京地区黄金零售人民币报价",
+    "description": "菜百首饰北京地区黄金、铂金与投资基础人民币报价",
     "link": SOURCE_LINK,
 }
 
@@ -52,10 +57,14 @@ _PAYLOAD = json.dumps(
     ensure_ascii=False,
 )
 
-_ITEM_IDS = {
-    "足金饰品": "gold-jewellery",
-    "足金999饰品": "gold-999-jewellery",
-    "足金999饰品金条": "gold-999-bar",
+_ITEM_SPECS = {
+    "足金饰品": ("gold-jewellery", "gold", "retail_sell"),
+    "足金999饰品": ("gold-999-jewellery", "gold", "retail_sell"),
+    "足金999饰品金条": ("gold-999-bar", "gold", "retail_sell"),
+    "铂金950饰品": ("platinum-950-jewellery", "platinum", "retail_sell"),
+    "铂金990饰品": ("platinum-990-jewellery", "platinum", "retail_sell"),
+    "足铂999饰品": ("platinum-999-jewellery", "platinum", "retail_sell"),
+    "菜百投资基础金价": ("investment-base-gold", "gold", "benchmark"),
 }
 
 
@@ -84,16 +93,26 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     items = []
     for row in rows:
         title = str(row.get("FKIND_NAME") or "").strip()
-        item_id = _ITEM_IDS.get(title)
-        if item_id is None:
+        spec = _ITEM_SPECS.get(title)
+        if spec is None:
             continue
+        item_id, metal, quote_type = spec
         items.append(
             gold_item(
                 item_id=item_id,
                 title=title,
                 url=SOURCE_LINK,
-                sell_price=row.get("FPRICE_BASE"),
+                metal=metal,
                 quote_time=row.get("FNEWTIME"),
+                quotes=[
+                    gold_quote(
+                        quote_type=quote_type,
+                        value=row.get("FPRICE_BASE"),
+                        currency="CNY",
+                        unit="gram",
+                        quote_time=row.get("FNEWTIME"),
+                    )
+                ],
                 note="北京地区实体店参考价，实际以门店公示为准",
             )
         )

@@ -49,7 +49,7 @@ GoldQuoteType = Literal[
     "spot",
 ]
 GoldUnit = Literal["gram", "tael", "kilogram"]
-GoldMetal = Literal["gold", "platinum", "silver"]
+GoldMetal = Literal["gold", "platinum", "silver", "palladium"]
 
 # 秒/毫秒判断阈值：小于此值视为秒级，×1000 补齐为毫秒。
 # 取 10^12（约 2001-09 的毫秒值），与前端 normalizeTimestampMs、扩展包 hot_fetcher 对齐。

@@ -15,14 +15,17 @@ SOURCE_LINK = "https://www.zlf.cn/"
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "周六福",
-    "description": "周六福足金与工艺金人民币零售指导价",
+    "description": "周六福黄金与铂金人民币零售指导价",
     "link": SOURCE_LINK,
 }
 
-_ITEM_IDS = {
-    "足金999‰": "gold-999",
-    "足金999.9‰": "gold-9999",
-    "工艺金": "craft-gold",
+_ITEM_SPECS = {
+    "足金999‰": ("gold-999", "gold"),
+    "足金999.9‰": ("gold-9999", "gold"),
+    "工艺金": ("craft-gold", "gold"),
+    "足铂999‰": ("platinum-999", "platinum"),
+    "足铂": ("platinum", "platinum"),
+    "铂Pt950": ("platinum-950", "platinum"),
 }
 
 
@@ -49,18 +52,19 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         if label is None or value is None:
             continue
         title = label.get_text(strip=True)
-        if title in _ITEM_IDS and title not in values:
+        if title in _ITEM_SPECS and title not in values:
             values[title] = value.get_text(strip=True)
 
     items = [
         gold_item(
-            item_id=item_id,
+            item_id=spec[0],
             title=title,
             url=SOURCE_LINK,
+            metal=spec[1],
             sell_price=values.get(title),
             quote_time=quote_time,
             note="零售指导价，详细金价以门店为准",
         )
-        for title, item_id in _ITEM_IDS.items()
+        for title, spec in _ITEM_SPECS.items()
     ]
     return gold_response(route_meta=ROUTE_META, result=result, items=items)

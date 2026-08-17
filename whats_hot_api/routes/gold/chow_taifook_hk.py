@@ -23,6 +23,12 @@ ROUTE_META: dict = {
     "title": "周大福（香港）",
     "description": "周大福香港港币/克与港币/两品牌原生报价",
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "报价地区",
+            "type": {"hong-kong": "中国香港 · HKD"},
+        }
+    },
 }
 
 _QuoteSpec = tuple[str, str, GoldMetal, GoldQuoteType, GoldUnit]
@@ -31,18 +37,18 @@ _QUOTES: dict[str, _QuoteSpec] = {
     "Gold_Sell_g": ("gold-jewellery", "999.9饰金", "gold", "retail_sell", "gram"),
     "Gold_Buy": ("gold-jewellery", "999.9饰金", "gold", "buyback", "tael"),
     "Gold_Buy_g": ("gold-jewellery", "999.9饰金", "gold", "buyback", "gram"),
-    "Redemption_Price": ("gold-exchange", "饰金换金价", "gold", "exchange", "tael"),
-    "Redemption_Price_g": ("gold-exchange", "饰金换金价", "gold", "exchange", "gram"),
+    "Redemption_Price": ("gold-jewellery", "999.9饰金", "gold", "exchange", "tael"),
+    "Redemption_Price_g": ("gold-jewellery", "999.9饰金", "gold", "exchange", "gram"),
     "Jewellery_Redemption_Price": (
-        "jewellery-exchange",
-        "饰金换珠宝价",
+        "gold-jewellery",
+        "999.9饰金",
         "gold",
         "exchange_jewellery",
         "tael",
     ),
     "Jewellery_Redemption_Price_g": (
-        "jewellery-exchange",
-        "饰金换珠宝价",
+        "gold-jewellery",
+        "999.9饰金",
         "gold",
         "exchange_jewellery",
         "gram",
@@ -52,35 +58,42 @@ _QUOTES: dict[str, _QuoteSpec] = {
     "Gold_Pellet_Buy": ("gold-pellet", "金粒", "gold", "buyback", "tael"),
     "Gold_Pellet_Buy_g": ("gold-pellet", "金粒", "gold", "buyback", "gram"),
     "Gold_Pellet_Redemption_Price": (
-        "gold-pellet-exchange",
-        "金粒换货价",
+        "gold-pellet",
+        "金粒",
         "gold",
         "exchange",
         "tael",
     ),
     "Gold_Pellet_Redemption_Price_g": (
-        "gold-pellet-exchange",
-        "金粒换货价",
+        "gold-pellet",
+        "金粒",
         "gold",
         "exchange",
         "gram",
     ),
-    "Platinum": ("platinum", "足铂金", "platinum", "retail_sell", "tael"),
-    "Platinum_g": ("platinum", "足铂金", "platinum", "retail_sell", "gram"),
+    "Platinum": ("platinum", "足铂金", "platinum", "buyback", "tael"),
+    "Platinum_g": ("platinum", "足铂金", "platinum", "buyback", "gram"),
     "Platinum_Redemption_Price": (
-        "platinum-exchange",
-        "足铂金换货价",
+        "platinum",
+        "足铂金",
         "platinum",
         "exchange",
         "tael",
     ),
     "Platinum_Redemption_Price_g": (
-        "platinum-exchange",
-        "足铂金换货价",
+        "platinum",
+        "足铂金",
         "platinum",
         "exchange",
         "gram",
     ),
+}
+
+_OFFICIAL_QUOTE_LABELS = {
+    "Redemption_Price": "饰金换金价",
+    "Jewellery_Redemption_Price": "饰金换珠宝价",
+    "Gold_Pellet_Redemption_Price": "金粒换货价",
+    "Platinum_Redemption_Price": "足铂金换货价",
 }
 
 
@@ -116,6 +129,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
             currency="HKD",
             unit=unit,
             quote_time=quote_time,
+            label=_OFFICIAL_QUOTE_LABELS.get(raw_key.removesuffix("_g")),
         )
         if quote is None:
             continue

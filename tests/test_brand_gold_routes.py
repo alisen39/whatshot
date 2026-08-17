@@ -8,6 +8,7 @@ from starlette.requests import Request
 from whats_hot_api.models import GoldItem
 from whats_hot_api.routes.gold import (
     baoqing,
+    beijing_rtj,
     caibai,
     china_gold,
     chow_taifook_hk,
@@ -43,6 +44,59 @@ def _assert_gold_response(route_data, expected_name: str) -> None:
     assert route_data.data
     assert all(isinstance(item, GoldItem) for item in route_data.data)
     assert all(item.quotes for item in route_data.data)
+
+
+@pytest.mark.asyncio
+async def test_beijing_rtj_maps_market_and_jewellery_quotes(monkeypatch):
+    async def fake_post(**kwargs):
+        assert kwargs["url"].endswith("/admin/get_price5.php")
+        assert kwargs["response_type"] == "text"
+        assert kwargs["ttl"] == 30
+        assert kwargs["headers"]["Content-Type"] == (
+            "application/x-www-form-urlencoded"
+        )
+        return _result(
+            "price,944.5,948.5,14.4,14.65,373.5,377,270.5,272,0,0,"
+            "942.14,703.65,352,261,12.24,08:00:00"
+        )
+
+    monkeypatch.setattr(beijing_rtj, "post", fake_post)
+    route_data = await beijing_rtj.handle_route(_request(beijing_rtj.ROUTE_NAME), True)
+
+    _assert_gold_response(route_data, "beijing-rtj")
+    assert route_data.type == "贵金属实时行情 · CNY/克"
+    assert [item.id for item in route_data.data] == [
+        "market-gold",
+        "market-silver",
+        "market-platinum",
+        "market-palladium",
+        "jewellery-pure-gold",
+        "jewellery-18k-gold",
+        "jewellery-pt950",
+        "jewellery-pd990",
+        "jewellery-ag925",
+    ]
+    assert route_data.data[0].sellPrice == 948.5
+    assert route_data.data[0].recyclePrice == 944.5
+    assert route_data.data[3].metal == "palladium"
+    assert route_data.data[3].quotes[0].label == "回购价"
+    assert route_data.data[0].mobileUrl == beijing_rtj.MOBILE_LINK
+    assert all(
+        quote.sourceQuoteTime == "2026-08-16T08:00:00+08:00"
+        and quote.sourceQuoteTimeTrusted
+        for item in route_data.data
+        for quote in item.quotes
+    )
+
+
+def test_beijing_rtj_only_trusts_nearby_time_of_day():
+    assert (
+        beijing_rtj._source_quote_time("23:59:30", "2026-08-16T16:00:00+00:00")
+        == "2026-08-16T23:59:30+08:00"
+    )
+    assert (
+        beijing_rtj._source_quote_time("12:00:00", "2026-08-16T16:00:00+00:00") is None
+    )
 
 
 @pytest.mark.asyncio
@@ -207,13 +261,23 @@ async def test_caibai_keeps_supported_gold_retail_rows(monkeypatch):
                                 "FNEWTIME": "2026-08-10 18:23:05",
                             },
                             {
-                                "FKIND_NAME": "菜百投资基础金价",
-                                "FPRICE_BASE": "942.70 元/克",
+                                "FKIND_NAME": "铂金950饰品",
+                                "FPRICE_BASE": "615.00 元/克",
                                 "FNEWTIME": "2026-08-10 18:23:05",
                             },
                             {
-                                "FKIND_NAME": "铂金950饰品",
-                                "FPRICE_BASE": "615.00 元/克",
+                                "FKIND_NAME": "铂金990饰品",
+                                "FPRICE_BASE": "620.00 元/克",
+                                "FNEWTIME": "2026-08-10 18:23:05",
+                            },
+                            {
+                                "FKIND_NAME": "足铂999饰品",
+                                "FPRICE_BASE": "625.00 元/克",
+                                "FNEWTIME": "2026-08-10 18:23:05",
+                            },
+                            {
+                                "FKIND_NAME": "菜百投资基础金价",
+                                "FPRICE_BASE": "942.70 元/克",
                                 "FNEWTIME": "2026-08-10 18:23:05",
                             },
                         ]
@@ -230,7 +294,13 @@ async def test_caibai_keeps_supported_gold_retail_rows(monkeypatch):
         "gold-jewellery",
         "gold-999-jewellery",
         "gold-999-bar",
+        "platinum-950-jewellery",
+        "platinum-990-jewellery",
+        "platinum-999-jewellery",
+        "investment-base-gold",
     ]
+    assert route_data.data[-1].quotes[0].quoteType == "benchmark"
+    assert all(item.timestamp == 1786357385000 for item in route_data.data)
 
 
 @pytest.mark.asyncio
@@ -276,6 +346,30 @@ async def test_chowsangsang_pairs_sell_and_third_party_buyback(monkeypatch):
             "weightUnit": "GM",
             "lastUpdateDate": "2026-08-10T09:30:00.000+08:00",
         },
+        {
+            "region": "CHN",
+            "type": "G_RFINGOT_SELL",
+            "price": "1147",
+            "currencyCode": "RMB",
+            "weightUnit": "GM",
+            "lastUpdateDate": "2026-08-10T09:30:02.000+08:00",
+        },
+        {
+            "region": "CHN",
+            "type": "PT950_JW_SELL",
+            "price": "678",
+            "currencyCode": "RMB",
+            "weightUnit": "GM",
+            "lastUpdateDate": "2026-08-10T09:30:05.000+08:00",
+        },
+        {
+            "region": "CHN",
+            "type": "PT950_JW_GPEXCH",
+            "price": "542",
+            "currencyCode": "RMB",
+            "weightUnit": "GM",
+            "lastUpdateDate": "2026-08-10T09:30:05.000+08:00",
+        },
     ]
 
     async def fake_get(**kwargs):
@@ -290,10 +384,17 @@ async def test_chowsangsang_pairs_sell_and_third_party_buyback(monkeypatch):
     assert [item.id for item in route_data.data] == [
         "gold-jewellery",
         "investment-gold",
+        "gold-button",
+        "platinum-950",
     ]
     assert route_data.data[0].sellPrice == 1307
     assert route_data.data[0].recyclePrice == 909
     assert "第三方回收方" in (route_data.data[0].desc or "")
+    assert route_data.data[2].sellPrice == 1147
+    assert [quote.quoteType for quote in route_data.data[3].quotes] == [
+        "retail_sell",
+        "exchange",
+    ]
 
 
 @pytest.mark.asyncio
@@ -338,6 +439,8 @@ async def test_zhouliufu_deduplicates_responsive_markup(monkeypatch):
     <div class="gold-item"><span class="label">足金999.9‰</span><span class="value">1313</span></div>
     <div class="gold-item"><span class="label">工艺金</span><span class="value">1143</span></div>
     <div class="gold-item"><span class="label">足铂999‰</span><span class="value">698</span></div>
+    <div class="gold-item"><span class="label">足铂</span><span class="value">688</span></div>
+    <div class="gold-item"><span class="label">铂Pt950</span><span class="value">678</span></div>
     <div class="gold-item"><span class="label">足金999‰</span><span class="value">1303</span></div>
     """
 
@@ -352,7 +455,11 @@ async def test_zhouliufu_deduplicates_responsive_markup(monkeypatch):
         "gold-999",
         "gold-9999",
         "craft-gold",
+        "platinum-999",
+        "platinum",
+        "platinum-950",
     ]
+    assert all(item.metal == "platinum" for item in route_data.data[3:])
 
 
 @pytest.mark.asyncio
@@ -387,6 +494,9 @@ async def test_baoqing_drops_client_generated_time(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_chow_taifook_hk_keeps_native_units(monkeypatch):
+    assert chow_taifook_hk.ROUTE_META["params"]["type"]["type"] == {
+        "hong-kong": "中国香港 · HKD"
+    }
     payload = {
         "Updated_Time": "2026-08-10 15:06:03",
         "Gold_Sell": "49388",
@@ -395,6 +505,18 @@ async def test_chow_taifook_hk_keeps_native_units(monkeypatch):
         "Gold_Buy_g": "1054",
         "Redemption_Price": "40938",
         "Redemption_Price_g": "1094.1",
+        "Jewellery_Redemption_Price": "40564",
+        "Jewellery_Redemption_Price_g": "1084.1",
+        "Gold_Pellet_Sell": "44154",
+        "Gold_Pellet_Sell_g": "1179.5",
+        "Gold_Pellet_Buy": "39916",
+        "Gold_Pellet_Buy_g": "1066.3",
+        "Gold_Pellet_Redemption_Price": "40215",
+        "Gold_Pellet_Redemption_Price_g": "1074.3",
+        "Platinum": "15090",
+        "Platinum_g": "403.4",
+        "Platinum_Redemption_Price": "15389",
+        "Platinum_Redemption_Price_g": "411.4",
     }
     body = (
         '<input class="gold-price-data d-none" value="'
@@ -412,18 +534,53 @@ async def test_chow_taifook_hk_keeps_native_units(monkeypatch):
 
     _assert_gold_response(route_data, "chow-taifook-hk")
     assert route_data.type == "中国香港 · HKD"
+    assert [item.id for item in route_data.data] == [
+        "gold-jewellery",
+        "gold-pellet",
+        "platinum",
+    ]
     assert route_data.data[0].sellPrice is None
     assert {(quote.currency, quote.unit) for quote in route_data.data[0].quotes} == {
         ("HKD", "gram"),
         ("HKD", "tael"),
     }
+    assert len(route_data.data[0].quotes) == 8
+    assert sum(len(item.quotes) for item in route_data.data) == 18
+    assert [quote.label for quote in route_data.data[0].quotes[4:]] == [
+        "饰金换金价",
+        "饰金换金价",
+        "饰金换珠宝价",
+        "饰金换珠宝价",
+    ]
+    assert route_data.data[1].quotes[-2].label == "金粒换货价"
+    assert [quote.quoteType for quote in route_data.data[2].quotes] == [
+        "buyback",
+        "buyback",
+        "exchange",
+        "exchange",
+    ]
+    assert route_data.data[2].quotes[-1].label == "足铂金换货价"
 
 
 @pytest.mark.asyncio
-async def test_emperor_jewellery_marks_missing_source_time(monkeypatch):
+async def test_emperor_jewellery_parses_all_rows_and_source_time(monkeypatch):
+    request_kwargs = {}
+
     async def fake_get(**kwargs):
+        request_kwargs.update(kwargs)
         return _result(
-            "Selling Price: HK$ 49,380.00 /tael — Buying Price: HK$ 39,450.00 /tael"
+            """
+            <section class="gold-price-table">
+              <div class="gold-table-desktop"><div class="body">
+                <div class="row"><span class="name">足金飾品</span><span class="type">(兩)</span><span class="sell-price">49,380.00</span><span class="buy-price">39,450.00</span></div>
+                <div class="row"><span class="name">足金金粒</span><span class="type">(兩)</span><span class="sell-price">43,840.00</span><span class="buy-price">39,690.00</span></div>
+                <div class="row"><span class="name">足金金條</span><span class="type">(兩)</span><span class="sell-price">43,840.00</span><span class="buy-price">39,690.00</span></div>
+                <div class="row"><span class="name">足鉑金首飾</span><span class="type">(兩)</span><span class="sell-price">20,670.00</span><span class="buy-price">14,990.00</span></div>
+                <div class="row"><span class="name">黃鉑金首飾</span><span class="type">(兩)</span><span class="sell-price">34,910.00</span><span class="buy-price">27,240.00</span></div>
+              </div></div>
+              <p class="last-updated">最後更新時間 :2026/08/10 15:20:00</p>
+            </section>
+            """
         )
 
     monkeypatch.setattr(emperor_jewellery, "get", fake_get)
@@ -432,7 +589,27 @@ async def test_emperor_jewellery_marks_missing_source_time(monkeypatch):
     )
 
     _assert_gold_response(route_data, "emperor-jewellery")
-    item = route_data.data[0]
-    assert item.sellPrice is None
-    assert [quote.model_dump()["price"] for quote in item.quotes] == [49380, 39450]
-    assert all(not quote.sourceQuoteTimeTrusted for quote in item.quotes)
+    assert [item.id for item in route_data.data] == [
+        "gold-ornaments",
+        "gold-pellet",
+        "gold-bars",
+        "platinum-990-ornaments",
+        "gold-platinum-ornaments",
+    ]
+    assert [item.title for item in route_data.data] == [
+        "足金飾品",
+        "足金金粒",
+        "足金金條",
+        "足鉑金首飾",
+        "黃鉑金首飾",
+    ]
+    assert request_kwargs["url"] == emperor_jewellery.SOURCE_LINK
+    assert request_kwargs["headers"]["Accept-Language"] == "zh-HK,zh;q=0.9"
+    assert all(item.url == emperor_jewellery.SOURCE_LINK for item in route_data.data)
+    assert all(len(item.quotes) == 2 for item in route_data.data)
+    assert all(item.timestamp == 1786346400000 for item in route_data.data)
+    assert all(
+        quote.sourceQuoteTimeTrusted
+        for item in route_data.data
+        for quote in item.quotes
+    )
