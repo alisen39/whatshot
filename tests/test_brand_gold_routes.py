@@ -372,7 +372,10 @@ async def test_chowsangsang_pairs_sell_and_third_party_buyback(monkeypatch):
         },
     ]
 
+    request_kwargs = {}
+
     async def fake_get(**kwargs):
+        request_kwargs.update(kwargs)
         return _result(f"<script>{json.dumps(rows, ensure_ascii=False)}</script>")
 
     monkeypatch.setattr(chowsangsang, "get", fake_get)
@@ -381,6 +384,8 @@ async def test_chowsangsang_pairs_sell_and_third_party_buyback(monkeypatch):
     )
 
     _assert_gold_response(route_data, "chowsangsang")
+    assert request_kwargs["headers"]["Referer"] == "https://cn.chowsangsang.com/"
+    assert "Mozilla/5.0" in request_kwargs["headers"]["User-Agent"]
     assert [item.id for item in route_data.data] == [
         "gold-jewellery",
         "investment-gold",

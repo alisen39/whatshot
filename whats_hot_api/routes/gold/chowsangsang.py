@@ -9,6 +9,7 @@ from starlette.requests import Request
 from whats_hot_api.models import RouterData
 from whats_hot_api.routes.gold._common import (
     GOLD_CACHE_TTL,
+    WEB_HEADERS,
     gold_item,
     gold_quote,
     gold_response,
@@ -67,6 +68,7 @@ def _extract_prices(body: str) -> dict[str, dict]:
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     result = await get(
         url=SOURCE_LINK,
+        headers={**WEB_HEADERS, "Referer": "https://cn.chowsangsang.com/"},
         no_cache=no_cache,
         ttl=GOLD_CACHE_TTL,
         response_type="text",
