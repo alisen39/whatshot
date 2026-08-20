@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from starlette.requests import Request
 
+from whats_hot_api._version import get_version
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
@@ -41,7 +42,9 @@ ROUTE_META: dict = {
 _API_BASE = "https://openrouter.ai/api/frontend/v1"
 _HEADERS = {
     "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0 (compatible; DailyHot/1.0; +https://whatshot.top)",
+    "User-Agent": (
+        f"Mozilla/5.0 (compatible; WhatsHot/{get_version()}; +https://whatshot.top)"
+    ),
 }
 _MAX_ITEMS = 100
 _CATALOG_TTL_SECONDS = 24 * 60 * 60

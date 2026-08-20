@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from starlette.requests import Request
 
+from whats_hot_api._version import get_version
 from whats_hot_api.routes.hotlist import openrouter, openrouter_announcements
 from whats_hot_api.utils.http_client import RequestResult
 
@@ -38,6 +39,12 @@ def test_openrouter_exposes_curated_board_space():
     assert openrouter_announcements.ROUTE_META["params"]["type"]["type"] == {
         "announcements": "官方公告"
     }
+
+
+def test_openrouter_user_agent_uses_current_whatshot_version():
+    assert openrouter._HEADERS["User-Agent"] == (
+        f"Mozilla/5.0 (compatible; WhatsHot/{get_version()}; +https://whatshot.top)"
+    )
 
 
 @pytest.mark.asyncio
