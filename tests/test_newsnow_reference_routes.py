@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from urllib.parse import urlencode
+import hashlib
+import json
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 from starlette.requests import Request
@@ -134,24 +136,97 @@ async def test_steam_parses_current_and_peak_player_counts(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_36kr_quick_is_a_newsflash_route(monkeypatch):
-    html = """
-    <div class="newsflash-item">
-      <a class="item-title" href="/newsflashes/123">Market update</a>
-      <span class="time">2分钟前</span>
-    </div>
-    """
+    html = '<script>window.__GATEWAY_SIGN__="nonce-value"</script>'
+    captured_get: dict = {}
+    captured_post: dict = {}
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
+        captured_get.update(kwargs)
         return RequestResult(False, "36kr-update", html)
 
-    monkeypatch.setattr(kr36_quick, "get", fake_get)
+    async def fake_post(**kwargs):
+        captured_post.update(kwargs)
+        return RequestResult(
+            False,
+            "36kr-api-update",
+            {
+                "code": 0,
+                "data": {
+                    "itemList": [
+                        {
+                            "itemId": 123,
+                            "itemType": 20,
+                            "templateMaterial": {
+                                "templateType": 0,
+                                "widgetTitle": "Market update",
+                                "widgetContent": "Full market update.（财联社）",
+                                "widgetImage": "https://img.example/market.jpg",
+                                "publishTime": 1787549277579,
+                                "hasRed": 1,
+                                "statComment": 2,
+                                "sourceUrlRoute": (
+                                    "webview?url=https%3A%2F%2Fexample.com%2Fmarket"
+                                ),
+                                "relevantProject": {"projectName": "Example Corp"},
+                            },
+                        }
+                    ],
+                },
+            },
+        )
 
-    route_data = await kr36_quick.handle_route(_request())
+    monkeypatch.setattr(kr36_quick, "get", fake_get)
+    monkeypatch.setattr(kr36_quick, "post", fake_post)
+
+    route_data = await kr36_quick.handle_route(_request(type="quick-stock"))
     item = route_data.data[0]
+    signed_body = captured_post["body"]
+    body = json.loads(signed_body)
+    sign = parse_qs(urlsplit(captured_post["url"]).query)["sign"][0]
 
     assert route_data.kind == "newsflash"
     assert route_data.name == "36kr-quick"
+    assert route_data.type == "股市快讯"
+    assert route_data.fromCache is False
+    assert route_data.updateTime == "36kr-api-update"
     assert item.title == "Market update"
-    assert item.content == "Market update"
-    assert item.contentStatus == "summary"
-    assert item.url == "https://www.36kr.com/newsflashes/123"
+    assert item.content == "Full market update.（财联社）"
+    assert item.contentStatus == "full"
+    assert item.source == "财联社"
+    assert item.isImportant is True
+    assert item.images == ["https://img.example/market.jpg"]
+    assert item.symbols == [{"projectName": "Example Corp"}]
+    assert item.metrics == {"commentCount": 2, "itemType": 20, "templateType": 0}
+    assert item.timestamp == 1787549277579
+    assert item.url == "https://example.com/market"
+    assert item.mobileUrl == "https://www.36kr.com/newsflashes/123"
+    assert body["nonce"] == "nonce-value"
+    assert body["partner_id"] == "web"
+    assert body["param"] == {
+        "pageSize": 20,
+        "pageEvent": 0,
+        "pageCallback": "",
+        "siteId": 1,
+        "type": 2,
+        "platformId": 2,
+    }
+    assert (
+        sign
+        == hashlib.md5(
+            (signed_body + "nonce-value").encode(), usedforsecurity=False
+        ).hexdigest()
+    )
+    assert captured_get["url"].endswith("/catalog/2")
+    assert captured_post["headers"]["Referer"].endswith("/catalog/2")
+    assert captured_post["cache_key"].endswith("?catalog=2")
+
+
+def test_36kr_quick_declares_all_newsflash_catalogs():
+    assert kr36_quick.TYPE_MAP == {
+        "hot": "全部快讯",
+        "quick": "全部快讯",
+        "quick-hot": "热点快讯",
+        "quick-stock": "股市快讯",
+        "quick-company": "公司快讯",
+        "quick-macro": "宏观快讯",
+    }
