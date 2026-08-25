@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import re
-from defusedxml import ElementTree as ET
 from email.utils import parsedate_to_datetime
 
 from bs4 import BeautifulSoup
+from defusedxml import ElementTree as ET
 from starlette.requests import Request
 
 from whats_hot_api.models import ListItem, RouterData
@@ -48,16 +48,12 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
 
 async def _get_list(type_param: str, no_cache: bool) -> dict:
     type_info = list_type.get(type_param, list_type["windows11"])
-    url = f"https://bbs.pcbeta.com/forum.php?mod=rss&fid={type_info['fid']}&auth=0"
     result = await get(
-        url=url,
+        url="https://bbs.pcbeta.com/forum.php",
+        params={"mod": "rss", "fid": type_info["fid"]},
         no_cache=no_cache,
         response_type="text",
-        headers={
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/rss+xml, application/xml, text/xml",
-            "Referer": SOURCE_LINK,
-        },
+        headers={"Cookie": "access_js_verified=1"},
     )
 
     data: list[ListItem] = []
