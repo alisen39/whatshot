@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from typing import Any
+from urllib.parse import urlsplit
 
 from starlette.requests import Request
 
@@ -76,27 +78,65 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
     url = f"https://top.{www}.sina.com.cn/ws/GetTopDataList.php?top_type=day&top_cat={params_str}&top_time={date_str}&top_show_num=50"
     result = await get(url, no_cache=no_cache, response_type="text")
     parsed = _parse_data(result.data)
-    items: list[dict] = parsed.get("data", [])
+    items = _build_items(parsed.get("data"))
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
-        "data": [
-            ListItem(
-                id=v.get("id", ""),
-                title=v.get("title", ""),
-                author=v.get("media") or None,
-                hot=_parse_hot_num(v.get("top_num", "0")),
-                timestamp=get_time(f"{v.get('create_date', '')} {v.get('create_time', '')}"),
-                url=v.get("url", ""),
-                mobileUrl=v.get("url", ""),
-            )
-            for v in items
-        ],
+        "data": items,
     }
 
 
-def _parse_hot_num(value: str) -> float:
+def _build_items(rows: Any) -> list[ListItem]:
+    if not isinstance(rows, list):
+        return []
+    items: list[ListItem] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item_id = _required_id(row.get("id"))
+        title = _required_text(row.get("title"))
+        url = _required_url(row.get("url"))
+        if not item_id or not title or not url:
+            continue
+        create_date = _optional_text(row.get("create_date")) or ""
+        create_time = _optional_text(row.get("create_time")) or ""
+        items.append(
+            ListItem(
+                id=item_id,
+                title=title,
+                author=_optional_text(row.get("media")),
+                hot=_parse_hot_num(row.get("top_num")),
+                timestamp=get_time(f"{create_date} {create_time}"),
+                url=url,
+                mobileUrl=url,
+            )
+        )
+    return items
+
+
+def _required_id(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return ""
+    return str(value).strip()
+
+
+def _required_text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _optional_text(value: Any) -> str | None:
+    text = _required_text(value)
+    return text or None
+
+
+def _required_url(value: Any) -> str:
+    url = _required_text(value)
+    parsed = urlsplit(url)
+    return url if parsed.scheme in {"http", "https"} and parsed.netloc else ""
+
+
+def _parse_hot_num(value: Any) -> float:
     try:
-        return float(value.replace(",", ""))
-    except (ValueError, AttributeError):
+        return float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
         return 0
