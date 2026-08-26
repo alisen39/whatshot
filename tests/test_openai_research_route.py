@@ -87,4 +87,3 @@ def test_route_declares_only_grouped_research_type() -> None:
     assert openai_research.ROUTE_META["params"]["type"]["type"] == {
         "research": "Research"
     }
-

@@ -71,4 +71,3 @@ def _as_newsflash(item: ListItem) -> NewsFlashItem:
         url=item.url,
         mobileUrl=item.mobileUrl or item.url,
     )
-
