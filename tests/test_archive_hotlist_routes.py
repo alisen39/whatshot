@@ -228,7 +228,9 @@ async def test_pcbeta_maps_windows_rss(monkeypatch):
     """
 
     async def fake_get(**kwargs):  # noqa: ANN003
-        assert "fid=563" in kwargs["url"]
+        assert kwargs["url"] == "https://bbs.pcbeta.com/forum.php"
+        assert kwargs["params"] == {"mod": "rss", "fid": "563"}
+        assert kwargs["headers"] == {"Cookie": "access_js_verified=1"}
         return RequestResult(False, "2026-07-06T09:20:00+00:00", rss)
 
     monkeypatch.setattr(pcbeta, "get", fake_get)
