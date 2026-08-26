@@ -14,10 +14,16 @@ ROUTE_META: dict = {
     "title": 'Hugging Face Blog',
     "description": 'Hugging Face model, product, and community updates.',
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"blog": "Hugging Face Blog"},
+        }
+    },
 }
 
 
-async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
+async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
     return RouterData(
         **ROUTE_META,
