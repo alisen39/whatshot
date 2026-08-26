@@ -41,7 +41,7 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/jianshu", "hot", None, "简书-热门推荐"),
     ("/thepaper", "hot", None, "澎湃新闻-热榜"),
     ("/qq-news", "hot", None, "腾讯新闻-热点榜"),
-    ("/netease-news", "hot", None, "网易新闻-热点榜"),
+    ("/netease-news", "hot", None, "网易新闻-最新内容"),
     ("/huxiu", "hot", None, "虎嗅-24小时"),
     ("/ifanr", "hot", None, "爱范儿-快讯"),
     ("/guokr", "hot", None, "果壳-热门"),
