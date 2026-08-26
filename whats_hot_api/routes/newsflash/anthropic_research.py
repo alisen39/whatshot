@@ -123,4 +123,3 @@ def _publish_timestamp(value: object) -> int | None:
 
 def _text(value: object) -> str:
     return " ".join(str(value or "").split())
-

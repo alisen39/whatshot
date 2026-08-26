@@ -87,4 +87,3 @@ def test_route_declares_only_grouped_engineering_type() -> None:
     assert anthropic_engineering.ROUTE_META["params"]["type"]["type"] == {
         "engineering": "Engineering"
     }
-
