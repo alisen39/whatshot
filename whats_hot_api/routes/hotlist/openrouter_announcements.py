@@ -23,7 +23,7 @@ ROUTE_META: dict = {
 }
 
 
-async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
+async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
     return RouterData(
         **ROUTE_META,
@@ -47,9 +47,9 @@ async def _get_list(no_cache: bool) -> dict:
     )
     announcements = [
         item
-        for item in parse_feed(result.data, limit=200)
+        for item in parse_feed(result.data)
         if "/blog/announcements/" in item.url
-    ][:30]
+    ]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,

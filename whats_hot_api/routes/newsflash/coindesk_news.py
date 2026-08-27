@@ -49,7 +49,7 @@ async def _get_list(no_cache: bool) -> dict:
     }
 
 
-def _parse_feed(xml: str, *, limit: int = 30) -> list[NewsFlashItem]:
+def _parse_feed(xml: str, *, limit: int | None = None) -> list[NewsFlashItem]:
     soup = BeautifulSoup(xml, "xml")
     rss = soup.find("rss")
     channel = rss.find("channel") if rss else None
@@ -92,7 +92,7 @@ def _parse_feed(xml: str, *, limit: int = 30) -> list[NewsFlashItem]:
     if not data:
         raise RuntimeError("CoinDesk RSS contains no usable articles")
     data.sort(key=lambda item: item.timestamp or 0, reverse=True)
-    return data[:limit]
+    return data if limit is None else data[:limit]
 
 
 def _tag_text(node, name: str) -> str:

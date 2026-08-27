@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import re
-from defusedxml import ElementTree as ET
 from email.utils import parsedate_to_datetime
 
 from bs4 import BeautifulSoup
+from defusedxml import ElementTree as ET
 from starlette.requests import Request
 
 from whats_hot_api.models import ListItem, RouterData
@@ -52,7 +52,7 @@ async def _get_list(no_cache: bool) -> dict:
         items,
         key=lambda item: _rfc822_ms(_xml_text(item, "pubDate")) or 0,
         reverse=True,
-    )[:50]
+    )
     data: list[ListItem] = []
     for item in parsed:
         title = _xml_text(item, "title")
