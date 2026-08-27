@@ -49,7 +49,7 @@ NATIVE_PROTOCOL_ROUTES = [('indiehackers', 'indiehackers', 'rss'),
  ('infoq', 'infoq', 'rss'),
  ('stackoverflow_blog', 'stackoverflow-blog', 'rss'),
  ('huggingface_blog', 'huggingface-blog', 'rss'),
- ('openai_cookbook', 'openai-cookbook', 'rsshub'),
+ ('openai_cookbook', 'openai-cookbook', 'rss'),
  ('openai_alignment', 'openai-alignment', 'rss'),
  ('openai_academy', 'openai-academy', 'rss'),
  ('anthropic_news', 'anthropic-news', 'rsshub'),
@@ -177,7 +177,7 @@ async def test_native_protocol_route_owns_metadata_and_fetch(monkeypatch, module
     if provider == "rss":
         captured = {}
 
-        async def fake_get(**kwargs):  # noqa: ANN003
+        async def fake_get(**kwargs):
             captured.update(kwargs)
             return RequestResult(False, "2026-07-30T00:00:00+00:00", RSS_SAMPLE)
 
@@ -185,7 +185,7 @@ async def test_native_protocol_route_owns_metadata_and_fetch(monkeypatch, module
     else:
         captured = {}
 
-        async def fake_fetch(**kwargs):  # noqa: ANN003
+        async def fake_fetch(**kwargs):
             captured.update(kwargs)
             return {
                 "from_cache": False,
