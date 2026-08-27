@@ -14,10 +14,16 @@ ROUTE_META: dict = {
     "title": 'Frontiers in Neuroscience',
     "description": 'Neuroscience research articles and journal updates.',
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"neuroscience": "Neuroscience"},
+        }
+    },
 }
 
 
-async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
+async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
     return RouterData(
         **ROUTE_META,
