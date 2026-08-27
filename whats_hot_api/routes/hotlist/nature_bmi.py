@@ -14,10 +14,16 @@ ROUTE_META: dict = {
     "title": 'Nature · Brain–machine interface',
     "description": 'Research updates on brain-machine interfaces.',
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"bmi": "Brain-machine Interface"},
+        }
+    },
 }
 
 
-async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
+async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
     return RouterData(
         **ROUTE_META,
