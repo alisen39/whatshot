@@ -17,7 +17,7 @@ ROUTE_META: dict = {
 }
 
 
-async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
+async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
     return RouterData(
         **ROUTE_META,
@@ -37,6 +37,10 @@ async def _get_list(no_cache: bool) -> dict:
         headers={
             "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
             "Referer": SOURCE_LINK or FEED_URL,
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 Chrome/138.0.0.0 Safari/537.36"
+            ),
         },
     )
     return {
