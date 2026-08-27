@@ -3,7 +3,6 @@ from __future__ import annotations
 from starlette.requests import Request
 
 from whats_hot_api.models import ListItem, RouterData
-from whats_hot_api.utils.rsshub import fetch_rsshub_feed
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 
@@ -11,7 +10,14 @@ ROUTE_NAME = "huggingface-papers"
 
 type_map: dict[str, str] = {
     "daily": "Daily Papers",
+    "papers": "Daily Papers",
     "weekly": "Weekly 热门",
+}
+
+_PERIOD_BY_TYPE: dict[str, str] = {
+    "daily": "day",
+    "papers": "day",
+    "weekly": "weekly",
 }
 
 ROUTE_META = {"name": ROUTE_NAME, "title": "Hugging Face · Daily Papers", "description": "Daily machine learning papers highlighted by Hugging Face.", "link": "https://huggingface.co/papers", "params": {"type": {"name": "榜单分类", "type": type_map}}}
@@ -32,11 +38,9 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
 
 
 async def _get_list(board_type: str, no_cache: bool) -> dict:
-    if board_type == "daily":
-        return await fetch_rsshub_feed(route_name=ROUTE_NAME, route_path="/huggingface/daily-papers", params={}, no_cache=no_cache)
     result = await get(
         url="https://huggingface.co/api/papers",
-        params={"period": "weekly"},
+        params={"period": _PERIOD_BY_TYPE[board_type]},
         no_cache=no_cache,
         headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0"},
     )

@@ -9,7 +9,7 @@ from whats_hot_api.utils.http_client import RequestResult
 
 @pytest.mark.asyncio
 async def test_huggingface_weekly_sorts_by_upvotes(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["url"] == "https://huggingface.co/api/papers"
         assert kwargs["params"] == {"period": "weekly"}
         return RequestResult(
@@ -47,19 +47,47 @@ async def test_huggingface_weekly_sorts_by_upvotes(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_huggingface_daily_uses_owned_rsshub_board(monkeypatch):
-    async def fake_fetch_rsshub_feed(**kwargs):  # noqa: ANN003
-        assert kwargs == {"route_name": "huggingface-papers", "route_path": "/huggingface/daily-papers", "params": {}, "no_cache": False}
-        return {
-            "from_cache": True,
-            "update_time": "2026-07-16T00:00:00+00:00",
-            "data": [],
-        }
+@pytest.mark.parametrize("board_type", ["daily", "papers"])
+async def test_huggingface_daily_and_papers_use_official_api(monkeypatch, board_type):
+    observed: dict[str, object] = {}
 
-    monkeypatch.setattr(hf_papers, "fetch_rsshub_feed", fake_fetch_rsshub_feed)
+    async def fake_get(**kwargs):
+        observed.update(kwargs)
+        return RequestResult(
+            False,
+            "2026-08-27T00:00:00+00:00",
+            [{"id": "2608.1", "title": "Daily paper", "upvotes": 5, "authors": []}],
+        )
+
+    monkeypatch.setattr(hf_papers, "get", fake_get)
     request = Request(
-        {"type": "http", "method": "GET", "path": "/huggingface-papers", "query_string": b"type=daily", "headers": []}
+        {"type": "http", "method": "GET", "path": "/huggingface-papers", "query_string": f"type={board_type}".encode(), "headers": []}
     )
     route_data = await hf_papers.handle_route(request)
+
+    assert observed["url"] == "https://huggingface.co/api/papers"
+    assert observed["params"] == {"period": "day"}
     assert route_data.type == "Daily Papers"
-    assert route_data.fromCache is True
+    assert [item.id for item in route_data.data] == ["2608.1"]
+
+
+def test_huggingface_papers_declares_cloud_board_type():
+    from types import SimpleNamespace
+
+    from whats_hot_api.catalog import RouteCatalog
+    from whats_hot_api.fetch import FetchRequest, FetchService, FetchTypeNotFoundError
+
+    route = SimpleNamespace(
+        handle_route=hf_papers.handle_route,
+        category="hotlist",
+        category_label="热榜",
+        metadata=hf_papers.ROUTE_META,
+        validate_type=True,
+    )
+    service = FetchService(RouteCatalog({hf_papers.ROUTE_NAME: route}))
+    described = service.describe_source("huggingface-papers")
+    assert "papers" in described.types
+    with pytest.raises(FetchTypeNotFoundError, match="Unknown type 'hot'"):
+        import asyncio
+
+        asyncio.run(service.fetch(FetchRequest(site="huggingface-papers", path_type="hot")))
