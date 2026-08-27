@@ -14,10 +14,16 @@ ROUTE_META: dict = {
     "title": 'MIT Tech Review · AI',
     "description": 'Technology Review coverage focused on AI.',
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"ai": "AI"},
+        }
+    },
 }
 
 
-async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
+async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
     return RouterData(
         **ROUTE_META,
