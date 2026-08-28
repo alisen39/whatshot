@@ -14,10 +14,16 @@ ROUTE_META: dict = {
     "title": 'arXiv · q-bio.NC',
     "description": 'Recent neuroscience papers from arXiv.',
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"q-bio-nc": "q-bio.NC"},
+        }
+    },
 }
 
 
-async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
+async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
     return RouterData(
         **ROUTE_META,
