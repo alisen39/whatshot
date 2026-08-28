@@ -40,6 +40,7 @@ def parse_feed(xml: str, *, limit: int = 30) -> list[ListItem]:
                 cover=_feed_image(node, description),
                 timestamp=_parse_timestamp(
                     _tag_text(node, "pubDate")
+                    or _tag_text(node, "pubdate")
                     or _tag_text(node, "published")
                     or _tag_text(node, "updated")
                     or _tag_text(node, "dc:date")
@@ -53,7 +54,7 @@ def parse_feed(xml: str, *, limit: int = 30) -> list[ListItem]:
     return items[:limit]
 
 
-def _feed_link(node) -> str:  # noqa: ANN001
+def _feed_link(node) -> str:
     link = node.find("link")
     if not link:
         return ""
@@ -61,7 +62,7 @@ def _feed_link(node) -> str:  # noqa: ANN001
     return href.strip() if href else link.get_text("", strip=True)
 
 
-def _feed_image(node, description: str) -> str | None:  # noqa: ANN001
+def _feed_image(node, description: str) -> str | None:
     for tag_name in ("media:thumbnail", "media:content", "image"):
         tag = node.find(tag_name)
         if tag:
@@ -80,7 +81,7 @@ def _feed_image(node, description: str) -> str | None:  # noqa: ANN001
     return candidate if _valid_url(candidate) else None
 
 
-def _author_text(node) -> str:  # noqa: ANN001
+def _author_text(node) -> str:
     author = node.find("author")
     if not author:
         return ""
@@ -88,7 +89,7 @@ def _author_text(node) -> str:  # noqa: ANN001
     return name.get_text(" ", strip=True) if name else author.get_text(" ", strip=True)
 
 
-def _tag_text(node, name: str) -> str:  # noqa: ANN001
+def _tag_text(node, name: str) -> str:
     tag = node.find(name)
     return tag.get_text(" ", strip=True) if tag else ""
 
@@ -102,7 +103,7 @@ def _parse_timestamp(value: Any) -> int | None:
     except (TypeError, ValueError, IndexError, OverflowError):
         pass
     try:
-        return int(datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp() * 1000)
+        return int(datetime.fromisoformat(text).timestamp() * 1000)
     except ValueError:
         return None
 
