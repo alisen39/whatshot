@@ -27,7 +27,17 @@ def _get_numbers(text: str | None) -> int:
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     url = "https://www.douban.com/group/explore"
-    result = await get(url=url, no_cache=no_cache, response_type="text")
+    result = await get(
+        url=url,
+        no_cache=no_cache,
+        response_type="text",
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 Chrome/138.0.0.0 Safari/537.36"
+            ),
+        },
+    )
     soup = BeautifulSoup(result.data, "html.parser")
     items = soup.select(".article .channel-item")
     data = []
