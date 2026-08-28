@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import re
-from defusedxml import ElementTree as ET
 from email.utils import parsedate_to_datetime
 
 from bs4 import BeautifulSoup
+from defusedxml import ElementTree as ET
 from starlette.requests import Request
 
 from whats_hot_api.models import ListItem, RouterData
@@ -19,6 +19,12 @@ ROUTE_META: dict = {
     "title": "OpenAI News",
     "description": "Official OpenAI product, research, and company updates",
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"news": "News"},
+        }
+    },
 }
 
 
