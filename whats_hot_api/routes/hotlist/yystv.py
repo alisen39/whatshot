@@ -18,7 +18,16 @@ ROUTE_META: dict = {
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     url = "https://www.yystv.cn/home/get_home_docs_by_page"
-    result = await get(url=url, no_cache=no_cache)
+    result = await get(
+        url=url,
+        no_cache=no_cache,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 Chrome/138.0.0.0 Safari/537.36"
+            ),
+        },
+    )
     items = result.data.get("data", [])
     data = [
         ListItem(
