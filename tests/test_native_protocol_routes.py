@@ -29,7 +29,7 @@ NATIVE_PROTOCOL_ROUTES = [('indiehackers', 'indiehackers', 'rss'),
  ('appleinsider', 'appleinsider', 'rss'),
  ('cult_of_mac', 'cult-of-mac', 'rss'),
  ('macrumors', 'macrumors', 'rss'),
- ('nine_to_five_mac', '9to5mac', 'rsshub'),
+ ('nine_to_five_mac', '9to5mac', 'rss'),
  ('securityonline', 'securityonline', 'rss'),
  ('cointelegraph', 'cointelegraph', 'rsshub'),
  ('economist', 'economist', 'rss'),
@@ -177,7 +177,7 @@ async def test_native_protocol_route_owns_metadata_and_fetch(monkeypatch, module
     if provider == "rss":
         captured = {}
 
-        async def fake_get(**kwargs):  # noqa: ANN003
+        async def fake_get(**kwargs):
             captured.update(kwargs)
             return RequestResult(False, "2026-07-30T00:00:00+00:00", RSS_SAMPLE)
 
@@ -185,7 +185,7 @@ async def test_native_protocol_route_owns_metadata_and_fetch(monkeypatch, module
     else:
         captured = {}
 
-        async def fake_fetch(**kwargs):  # noqa: ANN003
+        async def fake_fetch(**kwargs):
             captured.update(kwargs)
             return {
                 "from_cache": False,
