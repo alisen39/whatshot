@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from starlette.requests import Request
 
 from whats_hot_api.models import ListItem
 from whats_hot_api.routes.hotlist import (
-    cankaoxiaoxi,
     bilibili_hot_search,
     bilibili_hot_video,
+    cankaoxiaoxi,
     chongbuluo,
     crowdsupply,
     iqiyi_hot_ranklist,
@@ -73,7 +73,7 @@ async def test_cankaoxiaoxi_merges_channels_and_sorts(monkeypatch):
         "guandian": {"list": []},
     }
 
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         url = kwargs["url"]
         channel = url.rsplit("/", 2)[-2]
         return RequestResult(False, f"update-{channel}", payloads[channel])
@@ -112,7 +112,7 @@ async def test_chongbuluo_maps_hot_html(monkeypatch):
     </table></div>
     """
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(False, "2026-07-06T08:55:00+00:00", html)
 
     monkeypatch.setattr(chongbuluo, "get", fake_get)
@@ -147,7 +147,7 @@ async def test_chongbuluo_maps_latest_rss(monkeypatch):
     </channel></rss>
     """
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(False, "2026-07-06T09:00:00+00:00", rss)
 
     monkeypatch.setattr(chongbuluo, "get", fake_get)
@@ -166,7 +166,7 @@ async def test_chongbuluo_maps_latest_rss(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_nowcoder_maps_hot_search_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["cache_key"].endswith("size=20")
         return RequestResult(
             False,
@@ -227,7 +227,7 @@ async def test_pcbeta_maps_windows_rss(monkeypatch):
     </channel></rss>
     """
 
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["url"] == "https://bbs.pcbeta.com/forum.php"
         assert kwargs["params"] == {"mod": "rss", "fid": "563"}
         assert kwargs["headers"] == {"Cookie": "access_js_verified=1"}
@@ -258,7 +258,7 @@ async def test_solidot_maps_homepage_blocks(monkeypatch):
     </div>
     """
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(False, "2026-07-06T09:30:00+00:00", html)
 
     monkeypatch.setattr(solidot, "get", fake_get)
@@ -288,7 +288,7 @@ async def test_sputniknewscn_maps_lenta_widget(monkeypatch):
     </div>
     """
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(False, "2026-07-06T09:40:00+00:00", html)
 
     monkeypatch.setattr(sputniknewscn, "get", fake_get)
@@ -306,7 +306,7 @@ async def test_sputniknewscn_maps_lenta_widget(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tencent_hot_maps_tag_info_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["params"] == {"tagId": "aEWqxLtdgmQ="}
         return RequestResult(
             False,
@@ -362,7 +362,7 @@ async def test_tencent_hot_maps_tag_info_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_iqiyi_hot_ranklist_maps_video_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-06T10:00:00+00:00",
@@ -413,7 +413,7 @@ async def test_iqiyi_hot_ranklist_maps_video_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_qqvideo_tv_hotsearch_posts_and_maps_cards(monkeypatch):
-    async def fake_post(**kwargs):  # noqa: ANN003
+    async def fake_post(**kwargs):
         assert kwargs["body"]["page_params"]["rank_name"] == "HotSearch"
         assert kwargs["headers"]["Content-Type"] == "application/json"
         return RequestResult(
@@ -461,7 +461,7 @@ async def test_qqvideo_tv_hotsearch_posts_and_maps_cards(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_bilibili_hot_search_maps_hotword_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["params"] == {"limit": "30"}
         return RequestResult(
             False,
@@ -500,7 +500,7 @@ async def test_bilibili_hot_search_maps_hotword_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_bilibili_hot_video_maps_popular_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-06T10:30:00+00:00",
@@ -542,7 +542,7 @@ async def test_bilibili_hot_video_maps_popular_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_qwen_research_sorts_and_maps_articles(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-06T10:40:00+00:00",
@@ -601,7 +601,7 @@ async def test_crowdsupply_maps_project_tiles(monkeypatch):
     </a>
     """
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(False, "2026-07-06T10:50:00+00:00", html)
 
     monkeypatch.setattr(crowdsupply, "get", fake_get)
@@ -635,7 +635,7 @@ async def test_lobsters_maps_rss_items(monkeypatch):
     </channel></rss>
     """
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(False, "2026-07-06T11:00:00+00:00", rss)
 
     monkeypatch.setattr(lobsters, "get", fake_get)
@@ -653,9 +653,9 @@ async def test_lobsters_maps_rss_items(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_openai_news_maps_and_limits_rss_items(monkeypatch):
+async def test_openai_news_maps_all_rss_items_without_truncation(monkeypatch):
     items = []
-    start = datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 6, 1, 9, 0, tzinfo=UTC)
     for index in range(55):
         item_time = start + timedelta(days=index)
         day = index + 1
@@ -675,7 +675,7 @@ async def test_openai_news_maps_and_limits_rss_items(monkeypatch):
     <rss version="2.0"><channel>{''.join(items)}</channel></rss>
     """
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(False, "2026-07-06T11:10:00+00:00", rss)
 
     monkeypatch.setattr(openai_news, "get", fake_get)
@@ -684,7 +684,7 @@ async def test_openai_news_maps_and_limits_rss_items(monkeypatch):
     item = route_data.data[0]
 
     assert route_data.name == "openai-news"
-    assert route_data.total == 50
+    assert route_data.total == 55
     assert item.id == "item-55"
     assert item.title == "OpenAI item 55"
     assert item.desc == "Description 55"

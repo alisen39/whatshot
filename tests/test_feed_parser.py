@@ -53,3 +53,21 @@ def test_parse_feed_prefers_standard_pubdate_when_both_casings_exist():
 
     # Standard pubDate still wins over the lowercase variant for the same node.
     assert all(item.timestamp == _ms("2026-08-27T00:00:00+00:00") for item in items)
+
+
+def _rss_with(n: int) -> str:
+    items = "".join(
+        f"<item><guid>https://example.com/{i}</guid><link>https://example.com/{i}</link>"
+        f"<title>Item {i}</title><pubDate>Thu, 27 Aug 2026 00:00:00 +0000</pubDate></item>"
+        for i in range(n)
+    )
+    return f"<rss version=\"2.0\"><channel><title>t</title>{items}</channel></rss>"
+
+
+def test_parse_feed_keeps_every_item_by_default():
+    assert len(parse_feed(_rss_with(35))) == 35
+    assert len(parse_feed(_rss_with(300))) == 300
+
+
+def test_parse_feed_honors_explicit_limit():
+    assert len(parse_feed(_rss_with(35), limit=10)) == 10

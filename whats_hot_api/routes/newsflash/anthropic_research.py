@@ -56,7 +56,7 @@ async def _get_list(no_cache: bool) -> dict:
     }
 
 
-def _parse_page(html: str, *, limit: int = 30) -> list[NewsFlashItem]:
+def _parse_page(html: str, *, limit: int | None = None) -> list[NewsFlashItem]:
     soup = BeautifulSoup(html, "lxml")
     data: list[NewsFlashItem] = []
     seen_ids: set[str] = set()
@@ -96,7 +96,7 @@ def _parse_page(html: str, *, limit: int = 30) -> list[NewsFlashItem]:
     if not data:
         raise RuntimeError("Anthropic Research page contained no publication rows")
     data.sort(key=lambda item: item.timestamp or 0, reverse=True)
-    return data[:limit]
+    return data if limit is None else data[:limit]
 
 
 def _research_path(value: object) -> str | None:

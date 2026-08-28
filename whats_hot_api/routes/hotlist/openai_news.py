@@ -58,7 +58,7 @@ async def _get_list(no_cache: bool) -> dict:
         items,
         key=lambda item: _rfc822_ms(_xml_text(item, "pubDate")) or 0,
         reverse=True,
-    )[:50]
+    )
     data: list[ListItem] = []
     for item in parsed:
         title = _xml_text(item, "title")

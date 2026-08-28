@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from whats_hot_api.models import ListItem
 
 
-def parse_feed(xml: str, *, limit: int = 30) -> list[ListItem]:
+def parse_feed(xml: str, *, limit: int | None = None) -> list[ListItem]:
     """Parse RSS/Atom XML into the common hot-list item model."""
     soup = BeautifulSoup(xml, "xml")
     nodes = soup.find_all("item") or soup.find_all("entry")
