@@ -38,6 +38,16 @@ _HEADERS = {
 }
 
 
+def _cover_url(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, dict):
+        large = value.get("large")
+        if isinstance(large, str) and large.strip():
+            return large.strip()
+    return None
+
+
 def _get_numbers(text: str | None) -> int:
     if not text:
         return 0
@@ -132,7 +142,7 @@ async def _get_hot(no_cache: bool) -> dict:
                 id=item_id,
                 title=title,
                 desc=str(row.get("card_subtitle") or "").strip() or None,
-                cover=row.get("cover_url") or row.get("pic"),
+                cover=_cover_url(row.get("cover_url") or row.get("pic")),
                 url=url,
                 mobileUrl=f"https://m.douban.com/movie/subject/{item_id}/",
             )
