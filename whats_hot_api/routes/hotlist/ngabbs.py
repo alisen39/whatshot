@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from starlette.requests import Request
 
 from whats_hot_api.models import ListItem, RouterData
@@ -46,20 +48,67 @@ async def _get_list(no_cache: bool) -> dict:
         body="__output=14",
         no_cache=no_cache,
     )
-    items = result.data["result"][0]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
-        "data": [
-            ListItem(
-                id=v["tid"],
-                title=v["subject"],
-                author=v.get("author"),
-                hot=v.get("replies"),
-                timestamp=get_time(v.get("postdate")),
-                url=f"https://bbs.nga.cn{v['tpcurl']}",
-                mobileUrl=f"https://bbs.nga.cn{v['tpcurl']}",
-            )
-            for v in items
-        ],
+        "data": _parse_items(result.data),
     }
+
+
+def _parse_items(payload: Any) -> list[ListItem]:
+    result = payload.get("result") if isinstance(payload, dict) else None
+    rows = result[0] if isinstance(result, list) and result and isinstance(result[0], list) else None
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("NGA returned an empty or malformed topic ladder")
+
+    items: list[ListItem] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item_id = _required_id(row.get("tid"))
+        title = _required_text(row.get("subject"))
+        path = _topic_path(row.get("tpcurl"))
+        if not item_id or not title or not path:
+            continue
+        items.append(
+            ListItem(
+                id=item_id,
+                title=title,
+                author=_optional_text(row.get("author")),
+                hot=_replies(row.get("replies")),
+                timestamp=get_time(row.get("postdate")),
+                url=f"https://bbs.nga.cn{path}",
+                mobileUrl=f"https://bbs.nga.cn{path}",
+            )
+        )
+
+    if not items:
+        raise RuntimeError("NGA topic ladder contains no usable topics")
+    return items
+
+
+def _required_id(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return ""
+    return str(value)
+
+
+def _required_text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _optional_text(value: Any) -> str | None:
+    text = _required_text(value)
+    return text or None
+
+
+def _topic_path(value: Any) -> str:
+    path = _required_text(value)
+    return path if path.startswith("/") else ""
+
+
+def _replies(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0
