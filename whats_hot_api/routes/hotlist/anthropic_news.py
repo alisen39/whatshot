@@ -14,10 +14,16 @@ ROUTE_META: dict = {
     "title": 'Anthropic News',
     "description": 'Official Anthropic product and research updates.',
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"news": "News"},
+        }
+    },
 }
 
 
-async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
+async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await fetch_rsshub_feed(
         route_name=ROUTE_NAME,
         route_path=RSSHUB_ROUTE,
