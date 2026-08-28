@@ -12,6 +12,12 @@ ROUTE_META: dict = {
     "name": "nodeseek",
     "title": "NodeSeek",
     "link": "https://www.nodeseek.com/",
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"all": "All"},
+        }
+    },
 }
 
 
