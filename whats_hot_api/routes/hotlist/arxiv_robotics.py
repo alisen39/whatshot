@@ -6,13 +6,16 @@ from whats_hot_api.models import RouterData
 from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
 
-ROUTE_NAME = 'arxiv-robotics'
-SOURCE_LINK = 'https://arxiv.org/list/cs.RO/recent'
-FEED_URL = 'https://export.arxiv.org/rss/cs.RO'
+ROUTE_NAME = "arxiv-robotics"
+SOURCE_LINK = "https://arxiv.org/list/cs.RO/recent"
+FEED_URL = (
+    "https://export.arxiv.org/api/query?search_query=cat%3Acs.RO&start=0&"
+    "max_results=2000&sortBy=submittedDate&sortOrder=descending"
+)
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
-    "title": 'arXiv · cs.RO',
-    "description": 'Recent robotics papers from arXiv.',
+    "title": "arXiv · cs.RO",
+    "description": "Recent robotics papers from arXiv.",
     "link": SOURCE_LINK,
     "params": {
         "type": {
@@ -36,17 +39,12 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
 
 
 async def _get_list(no_cache: bool) -> dict:
-    result = await get(
-        url=FEED_URL,
-        no_cache=no_cache,
-        response_type="text",
-        headers={
-            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
-            "Referer": SOURCE_LINK or FEED_URL,
-        },
-    )
+    result = await get(url=FEED_URL, no_cache=no_cache, response_type="text")
+    data = parse_feed(result.data)
+    if not data:
+        raise RuntimeError("arXiv cs.RO response is not a non-empty Atom feed")
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
-        "data": parse_feed(result.data),
+        "data": data,
     }
