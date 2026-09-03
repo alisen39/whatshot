@@ -1,17 +1,126 @@
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-import whats_hot_api.registry as registry
-import whats_hot_api.utils.cache as cache_mod
+from whats_hot_api import registry
 from whats_hot_api.models import RouterData
 from whats_hot_api.registry import _register_route, router
-from whats_hot_api.utils.rsshub import fetch_rsshub_feed
+from whats_hot_api.utils import cache as cache_mod
 from whats_hot_api.utils import http_client
+from whats_hot_api.utils.rsshub import fetch_rsshub_feed
+
+
+def test_client_keys_are_isolated_by_origin_and_proxy():
+    first = http_client._client_key("https://one.invalid/a", None)
+    same_origin = http_client._client_key("https://one.invalid/b", None)
+    other_origin = http_client._client_key("https://two.invalid/a", None)
+    proxied = http_client._client_key(
+        "https://one.invalid/a",
+        "http://proxy.invalid:8080",
+    )
+
+    assert first == same_origin
+    assert first != other_origin
+    assert first != proxied
+
+
+@pytest.mark.asyncio
+async def test_clients_are_reused_only_within_one_origin():
+    await http_client.close_client()
+    try:
+        first = await http_client._get_client("https://one.invalid/a")
+        same_origin = await http_client._get_client("https://one.invalid/b")
+        other_origin = await http_client._get_client("https://two.invalid/a")
+
+        assert first is same_origin
+        assert first is not other_origin
+    finally:
+        await http_client.close_client()
+
+
+class _PoisonedClient:
+    def __init__(self, failure: BaseException | None = None) -> None:
+        self.failure = failure
+        self.started = asyncio.Event()
+        self.is_closed = False
+
+    async def _request(self):
+        self.started.set()
+        if self.failure is not None:
+            raise self.failure
+        await asyncio.Event().wait()
+
+    async def get(self, *args, **kwargs):
+        return await self._request()
+
+    async def post(self, *args, **kwargs):
+        return await self._request()
+
+    async def aclose(self) -> None:
+        self.is_closed = True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["get", "post"])
+async def test_cancelled_request_discards_only_its_origin_pool(method: str):
+    url = f"https://cancelled-{method}.invalid/path"
+    key = http_client._client_key(url, None)
+    poisoned = _PoisonedClient()
+    healthy_url = "https://healthy.invalid/path"
+    healthy_key = http_client._client_key(healthy_url, None)
+    healthy = _PoisonedClient()
+    http_client._clients[key] = poisoned  # type: ignore[assignment]
+    http_client._clients[healthy_key] = healthy  # type: ignore[assignment]
+
+    request = (
+        http_client.get(url, no_cache=True)
+        if method == "get"
+        else http_client.post(url, body={"ok": True}, no_cache=True)
+    )
+    task = asyncio.create_task(request)
+    await poisoned.started.wait()
+    task.cancel()
+
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert poisoned.is_closed is True
+        assert key not in http_client._clients
+        assert http_client._clients[healthy_key] is healthy
+        assert healthy.is_closed is False
+    finally:
+        http_client._clients.pop(key, None)
+        http_client._clients.pop(healthy_key, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["get", "post"])
+async def test_pool_timeout_discards_poisoned_origin_pool(method: str):
+    url = f"https://pool-timeout-{method}.invalid/path"
+    key = http_client._client_key(url, None)
+    poisoned = _PoisonedClient(httpx.PoolTimeout("pool exhausted"))
+    http_client._clients[key] = poisoned  # type: ignore[assignment]
+
+    request = (
+        http_client.get(url, no_cache=True)
+        if method == "get"
+        else http_client.post(url, body={"ok": True}, no_cache=True)
+    )
+    try:
+        with pytest.raises(httpx.PoolTimeout):
+            await request
+
+        assert poisoned.is_closed is True
+        assert key not in http_client._clients
+    finally:
+        http_client._clients.pop(key, None)
 
 
 @pytest.mark.asyncio

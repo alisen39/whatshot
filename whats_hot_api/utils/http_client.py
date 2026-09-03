@@ -18,7 +18,7 @@ from whats_hot_api.utils.logger import logger
 
 
 class RequestResult:
-    __slots__ = ("from_cache", "update_time", "data")
+    __slots__ = ("data", "from_cache", "update_time")
 
     def __init__(self, from_cache: bool, update_time: str, data: Any):
         self.from_cache = from_cache
@@ -42,9 +42,16 @@ def force_cache_only():
         _cache_only_mode.reset(token)
 
 
-# Per-proxy client pool: key = proxy URL ("" for no proxy)
-_clients: dict[str, httpx.AsyncClient] = {}
+# Keep each upstream origin in its own bounded pool. A single shared pool lets a
+# slow or broken origin consume every connection and turn otherwise healthy
+# sources into PoolTimeout failures.
+ClientKey = tuple[str, str]
+_clients: dict[ClientKey, httpx.AsyncClient] = {}
 _clients_lock = asyncio.Lock()
+
+_MAX_CONNECTIONS_PER_ORIGIN = 16
+_MAX_KEEPALIVE_CONNECTIONS_PER_ORIGIN = 4
+_KEEPALIVE_EXPIRY_SECONDS = 5.0
 
 _LOCAL_PROXY_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 _PRODUCTION_ENV_NAMES = {"prod", "production"}
@@ -66,6 +73,28 @@ def _build_cache_key(
         return url
     qs = "&".join(f"{k}={params[k]}" for k in sorted(params))
     return f"{url}?{qs}"
+
+
+def _origin_for_url(url: str) -> str:
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    hostname = (parsed.hostname or "").lower()
+    if not scheme or not hostname:
+        return url
+    try:
+        port = parsed.port
+    except ValueError:
+        return url
+    default_port = (scheme == "http" and port == 80) or (
+        scheme == "https" and port == 443
+    )
+    if port is None or default_port:
+        return f"{scheme}://{hostname}"
+    return f"{scheme}://{hostname}:{port}"
+
+
+def _client_key(url: str, proxy: str | None) -> ClientKey:
+    return proxy or "", _origin_for_url(url)
 
 
 def _is_production_environment() -> bool:
@@ -121,16 +150,28 @@ def _get_proxy_for_url(url: str) -> str | None:
     return None
 
 
-async def _get_client(proxy: str | None = None) -> httpx.AsyncClient:
-    key = proxy or ""
-    if key in _clients:
-        return _clients[key]
+async def _get_client(
+    url: str,
+    proxy: str | None = None,
+) -> httpx.AsyncClient:
+    key = _client_key(url, proxy)
+    existing = _clients.get(key)
+    if existing is not None and not existing.is_closed:
+        return existing
     async with _clients_lock:
-        if key not in _clients:
+        existing = _clients.get(key)
+        if existing is None or existing.is_closed:
             kwargs: dict[str, Any] = {
                 "timeout": httpx.Timeout(config.REQUEST_TIMEOUT / 1000),
                 "follow_redirects": True,
                 "http2": True,
+                "limits": httpx.Limits(
+                    max_connections=_MAX_CONNECTIONS_PER_ORIGIN,
+                    max_keepalive_connections=(
+                        _MAX_KEEPALIVE_CONNECTIONS_PER_ORIGIN
+                    ),
+                    keepalive_expiry=_KEEPALIVE_EXPIRY_SECONDS,
+                ),
             }
             if proxy:
                 kwargs["proxy"] = proxy
@@ -139,18 +180,39 @@ async def _get_client(proxy: str | None = None) -> httpx.AsyncClient:
     return _clients[key]
 
 
+async def _close_http_client(client: httpx.AsyncClient) -> None:
+    try:
+        await client.aclose()
+    except RuntimeError as exc:
+        if "Event loop is closed" not in str(exc):
+            raise
+        logger.warning("⚠️ HTTP client was bound to a closed event loop; discarded")
+    # Closing is best-effort recovery; transport backends may raise arbitrary
+    # exceptions while unwinding a cancelled request.
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"⚠️ HTTP client close failed: {exc}")
+
+
+async def _discard_client(
+    url: str,
+    proxy: str | None,
+    client: httpx.AsyncClient,
+) -> None:
+    """Remove and close a poisoned origin pool without touching other origins."""
+
+    key = _client_key(url, proxy)
+    async with _clients_lock:
+        if _clients.get(key) is not client:
+            return
+        _clients.pop(key, None)
+    await _close_http_client(client)
+
+
 async def close_client() -> None:
     clients = list(_clients.values())
     _clients.clear()
     for client in clients:
-        try:
-            await client.aclose()
-        except RuntimeError as exc:
-            if "Event loop is closed" not in str(exc):
-                raise
-            logger.warning("⚠️ HTTP client was bound to a closed event loop; discarded")
-        except Exception as exc:
-            logger.warning(f"⚠️ HTTP client close failed: {exc}")
+        await _close_http_client(client)
 
 
 async def get(
@@ -166,6 +228,8 @@ async def get(
 ) -> RequestResult:
     logger.info(f"🌐 [GET] {url}")
     key = _build_cache_key(url, params, cache_key)
+    resolved_proxy: str | None = None
+    client: httpx.AsyncClient | None = None
     try:
         if _cache_only_mode.get():
             cached = await cache.get(key)
@@ -189,7 +253,7 @@ async def get(
                 )
 
         resolved_proxy = proxy or _get_proxy_for_url(url)
-        client = await _get_client(resolved_proxy)
+        client = await _get_client(url, resolved_proxy)
         response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
 
@@ -211,6 +275,20 @@ async def get(
         )
         logger.info(f"✅ [{response.status_code}] request was successful")
         return RequestResult(from_cache=False, update_time=update_time, data=data)
+    except asyncio.CancelledError:
+        if client is not None:
+            await _discard_client(url, resolved_proxy, client)
+        logger.warning(
+            f"⚠️ [HTTP] Cancelled request; discarded pool for {_origin_for_url(url)}"
+        )
+        raise
+    except httpx.PoolTimeout:
+        if client is not None:
+            await _discard_client(url, resolved_proxy, client)
+        logger.error(
+            f"❌ [HTTP] Pool timeout; discarded pool for {_origin_for_url(url)}"
+        )
+        raise
     except Exception:
         logger.error("❌ [ERROR] request failed")
         raise
@@ -229,6 +307,8 @@ async def post(
 ) -> RequestResult:
     logger.info(f"🌐 [POST] {url}")
     key = _build_cache_key(url, body if isinstance(body, dict) else None, cache_key)
+    resolved_proxy: str | None = None
+    client: httpx.AsyncClient | None = None
     try:
         if _cache_only_mode.get():
             cached = await cache.get(key)
@@ -252,7 +332,7 @@ async def post(
                 )
 
         resolved_proxy = proxy or _get_proxy_for_url(url)
-        client = await _get_client(resolved_proxy)
+        client = await _get_client(url, resolved_proxy)
         if isinstance(body, (dict, list)):
             response = await client.post(url, headers=headers, json=body)
         else:
@@ -278,6 +358,20 @@ async def post(
         )
         logger.info(f"✅ [{response.status_code}] request was successful")
         return RequestResult(from_cache=False, update_time=update_time, data=data)
+    except asyncio.CancelledError:
+        if client is not None:
+            await _discard_client(url, resolved_proxy, client)
+        logger.warning(
+            f"⚠️ [HTTP] Cancelled request; discarded pool for {_origin_for_url(url)}"
+        )
+        raise
+    except httpx.PoolTimeout:
+        if client is not None:
+            await _discard_client(url, resolved_proxy, client)
+        logger.error(
+            f"❌ [HTTP] Pool timeout; discarded pool for {_origin_for_url(url)}"
+        )
+        raise
     except Exception:
         logger.error("❌ [ERROR] request failed")
         raise
