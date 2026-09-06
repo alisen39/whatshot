@@ -8,6 +8,7 @@ from whats_hot_api.routes.hotlist._weibo_categories import handle_category
 ROUTE_NAME = "weibo-acg"
 
 ROUTE_META: dict = {
+    "params": {"type": {"name": "榜单", "type": {"acg": "ACG榜"}}},
     "name": "weibo-acg",
     "title": "微博ACG榜",
     "description": "微博热搜ACG分类榜",

@@ -8,6 +8,7 @@ from whats_hot_api.routes.hotlist._weibo_categories import handle_category
 ROUTE_NAME = "weibo-sport"
 
 ROUTE_META: dict = {
+    "params": {"type": {"name": "榜单", "type": {"sport": "体育榜"}}},
     "name": "weibo-sport",
     "title": "微博体育榜",
     "description": "微博热搜体育分类榜",

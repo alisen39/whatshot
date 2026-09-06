@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from starlette.requests import Request
 
+from whats_hot_api.catalog import RouteCatalog
+from whats_hot_api.fetch import FetchRequest, FetchService
 from whats_hot_api.routes.hotlist import (
     _weibo_categories,
     weibo_acg,
@@ -84,11 +88,11 @@ class _SharedStub:
         self.get_calls: list[dict] = []
         self.post_calls: list[dict] = []
 
-    async def post(self, **kwargs):  # noqa: ANN003
+    async def post(self, **kwargs):
         self.post_calls.append(kwargs)
         return RequestResult(False, "2026-09-06T13:59:59+00:00", GENVISITOR_TEXT)
 
-    async def get(self, **kwargs):  # noqa: ANN003
+    async def get(self, **kwargs):
         self.get_calls.append(kwargs)
         url = kwargs["url"]
         if url == INCARNATE_URL:
@@ -164,6 +168,26 @@ async def test_category_route_metadata_and_request_chain(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("module", "endpoint", "route_name", "cate"), CATEGORY_MODULES)
+async def test_category_board_type_passes_shared_fetch_validation(
+    monkeypatch, module, endpoint, route_name, cate
+):
+    stub = _SharedStub({"ok": 1, "data": {"band_list": ROWS}})
+    _install(monkeypatch, stub)
+    service = FetchService(RouteCatalog({
+        route_name: SimpleNamespace(
+            handle_route=module.handle_route, category="hotlist", category_label="热榜"
+        )
+    }))
+
+    assert service.describe_source(route_name).default_type == endpoint
+    result = await service.fetch(FetchRequest(site=route_name, path_type=endpoint))
+
+    assert result.data.total == 2
+    assert stub.get_calls[-1]["url"] == BOARD_URL.format(endpoint=endpoint)
+
+
+@pytest.mark.asyncio
 async def test_category_route_propagates_no_cache(monkeypatch):
     stub = _SharedStub({"ok": 1, "data": {"band_list": ROWS[:1]}})
     cache_stub = _install(monkeypatch, stub, cached_cookie=INCARNATE_TEXT)
@@ -193,10 +217,10 @@ async def test_cached_visitor_cookie_skips_bootstrap(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_visitor_bootstrap_failure_raises(monkeypatch):
-    async def bad_post(**kwargs):  # noqa: ANN003
+    async def bad_post(**kwargs):
         return RequestResult(False, "2026-09-06T13:59:59+00:00", "")
 
-    async def unused_get(**kwargs):  # noqa: ANN003
+    async def unused_get(**kwargs):
         raise AssertionError("data request must not run after a failed bootstrap")
 
     monkeypatch.setattr(_weibo_categories, "post", bad_post)
