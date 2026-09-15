@@ -1,0 +1,26 @@
+{
+  "data": {
+    "cards": [
+      {
+        "content": [
+          {
+            "index": 0,
+            "word": "九门",
+            "title": null,
+            "query": "九门 电视剧",
+            "hotScore": "95471",
+            "url": "https://baike.baidu.com/item/%E4%B9%9D%E9%97%A8/64883150?fr=resou"
+          },
+          {
+            "index": 1,
+            "word": "非份之罪",
+            "title": null,
+            "query": "非份之罪 电视剧",
+            "hotScore": "93247",
+            "url": "https://baike.baidu.com/item/%E9%9D%9E%E4%BB%BD%E4%B9%8B%E7%BD%AA/63762065?fr=resou"
+          }
+        ]
+      }
+    ]
+  }
+}

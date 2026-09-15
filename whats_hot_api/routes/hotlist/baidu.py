@@ -61,11 +61,7 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
     pattern = re.compile(r"<!--s-data:(.*?)-->", re.DOTALL)
     match = pattern.search(result.data)
     if not match:
-        return {
-            "from_cache": result.from_cache,
-            "update_time": result.update_time,
-            "data": [],
-        }
+        raise ValueError("Baidu ranking s-data is missing")
 
     json_object: list[dict] = []
     try:
@@ -81,30 +77,45 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
                 cards = cards_list[0].get("content")
 
         if isinstance(cards, list):
-            if len(cards) > 0 and isinstance(cards[0].get("content"), list):
+            if cards and isinstance(cards[0], dict) and isinstance(cards[0].get("content"), list):
                 json_object = cards[0]["content"]
             else:
                 json_object = cards
-    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
-        json_object = []
+        else:
+            raise TypeError("Baidu ranking content list is missing")
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError, AttributeError) as exc:
+        raise ValueError("Baidu ranking s-data is malformed") from exc
 
-    return {
-        "from_cache": result.from_cache,
-        "update_time": result.update_time,
-        "data": [
+    data: list[ListItem] = []
+    seen: set[str] = set()
+    for v in json_object:
+        if not isinstance(v, dict):
+            raise TypeError("Baidu ranking item is malformed")
+        title = str(v.get("word") or v.get("title") or "").strip()
+        query = str(v.get("query") or title).strip()
+        if not title or not query:
+            continue
+        item_url = f"https://www.baidu.com/s?wd={quote(query)}"
+        if item_url in seen:
+            continue
+        seen.add(item_url)
+        data.append(
             ListItem(
-                id=v.get("index", idx + 1),
-                title=v.get("word") or v.get("title") or "",
+                id=item_url,
+                title=title,
                 desc=v.get("desc") or "",
                 cover=v.get("img") or (v.get("imgInfo") or {}).get("src") or "",
                 author=", ".join(v["show"]) if isinstance(v.get("show"), list) else (v.get("show") or ""),
                 timestamp=0,
                 hot=_parse_hot(v.get("hotScore") or v.get("hotTag") or "0"),
-                url=f"https://www.baidu.com/s?wd={quote(v.get('query') or v.get('word') or v.get('title') or '')}",
+                url=item_url,
                 mobileUrl=v.get("rawUrl") or v.get("url") or "",
             )
-            for idx, v in enumerate(json_object)
-        ],
+        )
+    return {
+        "from_cache": result.from_cache,
+        "update_time": result.update_time,
+        "data": data,
     }
 
 

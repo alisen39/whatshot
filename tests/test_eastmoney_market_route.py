@@ -207,7 +207,7 @@ async def test_eastmoney_market_parses_dragon_tiger_period(monkeypatch):
     )
 
     assert route_data.type == "龙虎榜 · 近5日"
-    assert route_data.data[0].id == "2026-07-16:688008"
+    assert route_data.data[0].id.startswith("2026-07-16:688008:")
     assert route_data.data[0].hot == 1_323_264_854
     assert "净买额 +13.23 亿元" in route_data.data[0].desc
     assert route_data.data[0].url.endswith("/lhb,2026-07-16,688008.html")

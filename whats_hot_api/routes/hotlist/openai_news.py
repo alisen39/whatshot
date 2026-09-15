@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 from defusedxml import ElementTree as ET
@@ -53,6 +54,8 @@ async def _get_list(no_cache: bool) -> dict:
     )
 
     root = ET.fromstring(result.data)
+    if root.tag != "rss" or root.find("channel") is None:
+        raise ValueError("OpenAI news RSS channel is missing")
     items = root.findall("./channel/item")
     parsed = sorted(
         items,
@@ -60,14 +63,19 @@ async def _get_list(no_cache: bool) -> dict:
         reverse=True,
     )
     data: list[ListItem] = []
+    seen: set[str] = set()
     for item in parsed:
         title = _xml_text(item, "title")
         url = _xml_text(item, "link")
         if not title or not url:
             continue
+        item_id = _slug(url)
+        if item_id in seen:
+            continue
+        seen.add(item_id)
         data.append(
             ListItem(
-                id=_slug(url) or url,
+                id=item_id,
                 title=title,
                 desc=_summary(_xml_text(item, "description")),
                 author=_xml_text(item, "category") or "OpenAI",
@@ -93,9 +101,14 @@ def _summary(value: str) -> str | None:
     return text[:240] or None
 
 
-def _slug(url: str) -> str | None:
-    match = re.search(r"/([^/]+)/?$", url)
-    return match.group(1) if match else None
+def _slug(url: str) -> str:
+    parsed = urlsplit(url)
+    # Retain existing IDs for ordinary /index/<slug> articles; nested paths
+    # need their full identity (e.g. NVIDIA and Virgin Atlantic /chatgpt-work).
+    match = re.fullmatch(r"/index/([^/]+)/?", parsed.path)
+    if match and parsed.hostname == "openai.com":
+        return match.group(1)
+    return parsed._replace(path=parsed.path.rstrip("/"), query="", fragment="").geturl()
 
 
 def _rfc822_ms(value: str) -> int | None:

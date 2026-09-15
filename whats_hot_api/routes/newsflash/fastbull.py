@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from urllib.parse import urljoin
+import re
+from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 from starlette.requests import Request
@@ -59,23 +60,50 @@ async def _get_list(board_type: str, no_cache: bool) -> dict:
     )
     soup = BeautifulSoup(result.data, "lxml")
     data: list[NewsFlashItem] = []
-    for node in soup.select(".news-list, .trending_type"):
+    selector = (
+        "#main-content .news-list"
+        if board_type == "express"
+        else ".news_main .trending_type, #report_list-main .trending_type"
+    )
+    nodes = soup.select(selector)
+    if not nodes:
+        raise ValueError(f"FastBull {board_type} main list is missing or empty")
+    seen: set[str] = set()
+    for node in nodes:
         link = node.select_one(".title_name, .title")
-        href = (link.get("href") if link else None) or node.get("href")
         title = _text(link.get_text(" ", strip=True) if link else "")
-        if title.startswith("【") and "】" in title:
-            title = title.split("】", 1)[0][1:].strip()
-        url = urljoin(SOURCE_LINK, href or "")
-        if not title or not url.startswith(("http://", "https://")):
+        if not title:
             continue
+        if board_type == "express":
+            share = node.select_one("[data-href]")
+            href = str(share.get("data-href") or "") if share else ""
+            native_id = str(node.get("data-id") or "")
+            if not re.fullmatch(r"\d+(?:_\d+)*", native_id):
+                raise ValueError("FastBull flash is missing its native data-id")
+            item_id = f"/cn/fastshort/{native_id}"
+            if urlsplit(href).path != item_id:
+                raise ValueError("FastBull flash share link does not match data-id")
+        else:
+            href = str(node.get("href") or "")
+            match = re.fullmatch(r"/cn/news-?detail/(\d+(?:_\d+)*)/?", urlsplit(href).path)
+            if not match:
+                raise ValueError("FastBull article is missing its detail link")
+            # Both spelling variants identify the same article. Keep legacy IDs.
+            item_id = f"/cn/news-detail/{match.group(1)}"
+        url = urljoin(SOURCE_LINK, href)
+        if urlsplit(url).scheme not in {"http", "https"} or urlsplit(url).hostname != "www.fastbull.com":
+            raise ValueError("FastBull item has an unexpected detail host")
+        if item_id in seen:
+            continue
+        seen.add(item_id)
         date_node = node.select_one("[data-date]")
         timestamp = get_time(node.get("data-date") or (date_node.get("data-date") if date_node else None))
-        summary_node = node.select_one(".content, .desc, .summary")
+        summary_node = node.select_one(".content, .desc, .summary, .brief, .tips")
         summary = _text(summary_node.get_text(" ", strip=True) if summary_node else "")
         content = summary or title
         data.append(
             NewsFlashItem(
-                id=href or url,
+                id=item_id,
                 title=title,
                 content=content,
                 summary=summary or None,

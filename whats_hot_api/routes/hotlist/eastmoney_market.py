@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from hashlib import sha256
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -454,11 +455,7 @@ async def _get_dragon_tiger_list(
     period = _DRAGON_TIGER_TYPES[selected_type][1]
     start_date, end_date = _dragon_tiger_dates(page_result.data or "", period)
     if not start_date or not end_date:
-        return {
-            "from_cache": page_result.from_cache,
-            "update_time": page_result.update_time,
-            "data": [],
-        }
+        raise ValueError("Eastmoney dragon-tiger date window is missing")
 
     result = await get(
         url=_DATACENTER_URL,
@@ -491,8 +488,17 @@ async def _get_dragon_tiger_list(
             "Referer": _DRAGON_TIGER_PAGE_URL,
         },
     )
-    rows = ((result.data or {}).get("result") or {}).get("data") or []
+    payload = result.data
+    if (
+        not isinstance(payload, dict)
+        or payload.get("success") is False
+        or not isinstance(payload.get("result"), dict)
+        or not isinstance(payload["result"].get("data"), list)
+    ):
+        raise ValueError("Eastmoney dragon-tiger response is malformed")
+    rows = payload["result"]["data"]
     data: list[ListItem] = []
+    seen: set[str] = set()
     for row in rows:
         code = _text(row.get("SECURITY_CODE"))
         name = _text(row.get("SECURITY_NAME_ABBR"))
@@ -500,10 +506,17 @@ async def _get_dragon_tiger_list(
         if not code or not name or not trade_date:
             continue
         date = trade_date[:10]
+        reason = _text(row.get("EXPLANATION"))
+        if not reason:
+            raise ValueError("Eastmoney dragon-tiger detail is missing EXPLANATION")
+        item_id = f"{date}:{code}:{sha256(reason.encode()).hexdigest()}"
+        if item_id in seen:
+            continue
+        seen.add(item_id)
         detail_url = f"https://data.eastmoney.com/stock/lhb,{date},{code}.html"
         data.append(
             ListItem(
-                id=f"{date}:{code}",
+                id=item_id,
                 title=name,
                 author=code,
                 hot=_integer(row.get("BILLBOARD_NET_AMT")),

@@ -1,0 +1,26 @@
+{
+  "data": {
+    "cards": [
+      {
+        "content": [
+          {
+            "index": 0,
+            "word": "原神",
+            "title": null,
+            "query": "原神 游戏",
+            "hotScore": "100449",
+            "url": "https://www.baidu.com/s?wd=%E5%8E%9F%E7%A5%9E+%E6%B8%B8%E6%88%8F&sa=fyb_game_all&rsv_dl=fyb_game_all"
+          },
+          {
+            "index": 1,
+            "word": "王者荣耀",
+            "title": null,
+            "query": "王者荣耀 游戏",
+            "hotScore": "74444",
+            "url": "https://www.baidu.com/s?wd=%E7%8E%8B%E8%80%85%E8%8D%A3%E8%80%80+%E6%B8%B8%E6%88%8F&sa=fyb_game_all&rsv_dl=fyb_game_all"
+          }
+        ]
+      }
+    ]
+  }
+}

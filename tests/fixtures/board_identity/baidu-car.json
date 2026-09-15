@@ -1,0 +1,26 @@
+{
+  "data": {
+    "cards": [
+      {
+        "content": [
+          {
+            "index": 0,
+            "word": "捷达VS8",
+            "title": null,
+            "query": "捷达VS8 汽车",
+            "hotScore": "6121997",
+            "url": "https://www.baidu.com/s?wd=%E6%8D%B7%E8%BE%BEVS8+%E6%B1%BD%E8%BD%A6&sa=fyb_car_all&rsv_dl=fyb_car_all"
+          },
+          {
+            "index": 1,
+            "word": "奥德赛",
+            "title": null,
+            "query": "奥德赛 汽车",
+            "hotScore": "178690",
+            "url": "https://www.baidu.com/s?wd=%E5%A5%A5%E5%BE%B7%E8%B5%9B+%E6%B1%BD%E8%BD%A6&sa=fyb_car_all&rsv_dl=fyb_car_all"
+          }
+        ]
+      }
+    ]
+  }
+}

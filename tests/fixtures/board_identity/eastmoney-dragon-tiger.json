@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "result": {
+    "data": [
+      {
+        "SECURITY_CODE": "002212",
+        "SECURITY_NAME_ABBR": "天融信",
+        "TRADE_DATE": "2026-09-15 00:00:00",
+        "CHANGE_RATE": 5,
+        "BILLBOARD_NET_AMT": 200189525.09,
+        "TURNOVERRATE": 29.5905,
+        "EXPLANATION": "连续三个交易日内，涨幅偏离值累计达到20%的证券",
+        "EXPLAIN": "主力做T，成功率18.48%"
+      },
+      {
+        "SECURITY_CODE": "002212",
+        "SECURITY_NAME_ABBR": "天融信",
+        "TRADE_DATE": "2026-09-15 00:00:00",
+        "CHANGE_RATE": 5,
+        "BILLBOARD_NET_AMT": -2897225.42999995,
+        "TURNOVERRATE": 29.5905,
+        "EXPLANATION": "日换手率达到20%的前5只证券",
+        "EXPLAIN": "普通席位买入，成功率44.23%"
+      }
+    ]
+  }
+}

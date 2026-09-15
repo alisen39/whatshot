@@ -1,0 +1,26 @@
+{
+  "data": {
+    "cards": [
+      {
+        "content": [
+          {
+            "index": 0,
+            "word": "功夫女足",
+            "title": null,
+            "query": "功夫女足 电影",
+            "hotScore": "106438",
+            "url": "https://baike.baidu.com/item/%E5%8A%9F%E5%A4%AB%E5%A5%B3%E8%B6%B3/68014512?fr=resou"
+          },
+          {
+            "index": 1,
+            "word": "欢迎来龙餐馆",
+            "title": null,
+            "query": "欢迎来龙餐馆 电影",
+            "hotScore": "99672",
+            "url": "https://baike.baidu.com/item/%E6%AC%A2%E8%BF%8E%E6%9D%A5%E9%BE%99%E9%A4%90%E9%A6%86/60346034?fr=resou"
+          }
+        ]
+      }
+    ]
+  }
+}

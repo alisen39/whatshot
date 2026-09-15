@@ -1,0 +1,26 @@
+{
+  "data": {
+    "cards": [
+      {
+        "content": [
+          {
+            "index": 0,
+            "word": "牧神记",
+            "title": null,
+            "query": "牧神记 小说",
+            "hotScore": "104223",
+            "url": "https://www.baidu.com/s?wd=%E7%89%A7%E7%A5%9E%E8%AE%B0+%E5%B0%8F%E8%AF%B4&sa=fyb_novel_all&rsv_dl=fyb_novel_all"
+          },
+          {
+            "index": 1,
+            "word": "封总，太太想跟你离婚很久了",
+            "title": null,
+            "query": "封总，太太想跟你离婚很久了 小说",
+            "hotScore": "101265",
+            "url": "https://www.baidu.com/s?wd=%E5%B0%81%E6%80%BB%EF%BC%8C%E5%A4%AA%E5%A4%AA%E6%83%B3%E8%B7%9F%E4%BD%A0%E7%A6%BB%E5%A9%9A%E5%BE%88%E4%B9%85%E4%BA%86+%E5%B0%8F%E8%AF%B4&sa=fyb_novel_all&rsv_dl=fyb_novel_all"
+          }
+        ]
+      }
+    ]
+  }
+}

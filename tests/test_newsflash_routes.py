@@ -14,9 +14,9 @@ from whats_hot_api.routes.newsflash import (
     futunn,
     gelonghui,
     hexun,
-    jingji21,
     jiemian,
     jin10,
+    jingji21,
     jrj,
     sina_finance,
     ths_10jqka,
@@ -45,7 +45,9 @@ async def test_fastbull_native_boards_are_newsflash(monkeypatch, board_type, pat
         return RequestResult(
             False,
             "fastbull-update",
-            '<div class="news-list" data-date="2026-07-30T12:30:00+08:00"><a class="title_name" href="/news/123">【市场】市场消息</a><p class="summary">快讯摘要</p></div>',
+            '<div id="main-content"><div class="news-list" data-id="123" data-date="2026-07-30T12:30:00+08:00"><span class="title_name">【市场】市场消息</span><div data-href="/cn/fastshort/123"></div><p class="summary">快讯摘要</p></div></div>'
+            if board_type == "express" else
+            '<div class="news_main"><a class="trending_type" href="/cn/news-detail/123" data-date="2026-07-30T12:30:00+08:00"><h4 class="title">【市场】市场消息</h4><p class="brief">快讯摘要</p></a></div>',
         )
 
     monkeypatch.setattr(fastbull, "get", fake_get)
@@ -54,7 +56,7 @@ async def test_fastbull_native_boards_are_newsflash(monkeypatch, board_type, pat
     assert result.kind == "newsflash"
     assert result.type == fastbull.TYPE_MAP[board_type]
     assert isinstance(result.data[0], NewsFlashItem)
-    assert result.data[0].title == "市场"
+    assert result.data[0].title == "【市场】市场消息"
     assert result.data[0].content == "快讯摘要"
 
 
