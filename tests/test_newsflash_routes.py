@@ -36,18 +36,40 @@ def _request(query_string: bytes = b"") -> Request:
     })
 
 
+def _fastbull_feed_envelope(rows: list[dict]) -> dict:
+    return {
+        "code": 0,
+        "subCode": "1000000",
+        "message": "操作成功",
+        "bodyMessage": json.dumps({"pageDatas": rows, "pageSize": len(rows)}, ensure_ascii=False),
+    }
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("board_type", "path"), (("express", "/cn/express-news"), ("news", "/cn/news")))
-async def test_fastbull_native_boards_are_newsflash(monkeypatch, board_type, path):
+@pytest.mark.parametrize("board_type", ("express", "important"))
+async def test_fastbull_flash_boards_use_json_feed(monkeypatch, board_type):
     async def fake_get(**kwargs):  # noqa: ANN003
-        assert kwargs["url"].endswith(path)
+        assert kwargs["url"] == fastbull.FEED_URL_ZH
+        assert kwargs["response_type"] == "json"
+        assert kwargs["no_cache"] is True
         assert kwargs["ttl"] == fastbull.config.NEWSFLASH_CACHE_TTL
+        assert kwargs["params"] == {
+            "pageSize": str(fastbull.FEED_PAGE_SIZE),
+            "checkImportant": "1" if board_type == "important" else "0",
+        }
         return RequestResult(
             False,
             "fastbull-update",
-            '<div id="main-content"><div class="news-list" data-id="123" data-date="2026-07-30T12:30:00+08:00"><span class="title_name">【市场】市场消息</span><div data-href="/cn/fastshort/123"></div><p class="summary">快讯摘要</p></div></div>'
-            if board_type == "express" else
-            '<div class="news_main"><a class="trending_type" href="/cn/news-detail/123" data-date="2026-07-30T12:30:00+08:00"><h4 class="title">【市场】市场消息</h4><p class="brief">快讯摘要</p></a></div>',
+            _fastbull_feed_envelope([
+                {
+                    "newsId": "4280823_214_1",
+                    "path": "4280823_214_1",
+                    "newsTitle": "分析师：沃什在利率问题上已把自己逼入墙角。",
+                    "newsType": 0,
+                    "important": 1,
+                    "releasedDate": 1789578839561,
+                },
+            ]),
         )
 
     monkeypatch.setattr(fastbull, "get", fake_get)
@@ -55,9 +77,88 @@ async def test_fastbull_native_boards_are_newsflash(monkeypatch, board_type, pat
 
     assert result.kind == "newsflash"
     assert result.type == fastbull.TYPE_MAP[board_type]
+    item = result.data[0]
+    assert isinstance(item, NewsFlashItem)
+    assert item.id == "/cn/fastshort/4280823_214_1"
+    assert item.title == item.content == "分析师：沃什在利率问题上已把自己逼入墙角。"
+    assert item.contentStatus == "full"
+    assert item.isImportant is True
+    assert item.timestamp == 1789578839561
+    assert item.url == "https://www.fastbull.com/cn/fastshort/4280823_214_1"
+
+
+@pytest.mark.asyncio
+async def test_fastbull_important_board_allows_empty_window(monkeypatch):
+    async def fake_get(**kwargs):  # noqa: ANN003
+        assert kwargs["params"]["checkImportant"] == "1"
+        return RequestResult(False, "fastbull-update", _fastbull_feed_envelope([]))
+
+    monkeypatch.setattr(fastbull, "get", fake_get)
+    result = await fastbull.handle_route(_request(b"type=important"), no_cache=True)
+    assert result.total == 0
+
+
+@pytest.mark.asyncio
+async def test_fastbull_en_board_uses_en_edition_gateway(monkeypatch):
+    async def fake_get(**kwargs):  # noqa: ANN003
+        assert kwargs["url"] == fastbull.FEED_URL_EN
+        assert kwargs["headers"]["lang"] == "en-us"
+        assert kwargs["headers"]["Referer"] == "https://www.fastbull.com/"
+        assert kwargs["params"] == {"pageSize": str(fastbull.FEED_PAGE_SIZE)}
+        assert kwargs["no_cache"] is True
+        return RequestResult(
+            False,
+            "fastbull-update",
+            _fastbull_feed_envelope([
+                {
+                    "newsId": "4283409_1_0",
+                    "path": "4283409_1_0",
+                    "newsTitle": "Russian President Putin: Russia's Budget",
+                    "newsType": 0,
+                    "important": 0,
+                    "langId": 0,
+                    "releasedDate": 1789666047235,
+                },
+            ]),
+        )
+
+    monkeypatch.setattr(fastbull, "get", fake_get)
+    result = await fastbull.handle_route(_request(b"type=en"), no_cache=True)
+
+    assert result.kind == "newsflash"
+    assert result.type == fastbull.TYPE_MAP["en"]
+    item = result.data[0]
+    # The en edition is a disjoint ID namespace with its own /fastshort/ URLs.
+    assert item.id == "/fastshort/4283409_1_0"
+    assert item.title == item.content == "Russian President Putin: Russia's Budget"
+    assert item.contentStatus == "full"
+    assert item.isImportant is False
+    assert item.timestamp == 1789666047235
+    assert item.url == "https://www.fastbull.com/fastshort/4283409_1_0"
+
+
+
+
+@pytest.mark.asyncio
+async def test_fastbull_news_board_is_newsflash(monkeypatch):
+    async def fake_get(**kwargs):  # noqa: ANN003
+        assert kwargs["url"].endswith("/cn/news")
+        assert kwargs["ttl"] == fastbull.config.NEWSFLASH_CACHE_TTL
+        return RequestResult(
+            False,
+            "fastbull-update",
+            '<div class="news_main"><a class="trending_type" href="/cn/news-detail/123" data-date="2026-07-30T12:30:00+08:00"><h4 class="title">【市场】市场消息</h4><p class="brief">快讯摘要</p></a></div>',
+        )
+
+    monkeypatch.setattr(fastbull, "get", fake_get)
+    result = await fastbull.handle_route(_request(b"type=news"), no_cache=True)
+
+    assert result.kind == "newsflash"
+    assert result.type == fastbull.TYPE_MAP["news"]
     assert isinstance(result.data[0], NewsFlashItem)
     assert result.data[0].title == "【市场】市场消息"
     assert result.data[0].content == "快讯摘要"
+
 
 
 @pytest.mark.asyncio
