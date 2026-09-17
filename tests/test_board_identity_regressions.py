@@ -31,16 +31,19 @@ def _feed_payload() -> dict:
     }
 
 
-@pytest.mark.parametrize("board", ["express", "important"])
+@pytest.mark.parametrize("board", ["express", "important", "en"])
 async def test_fastbull_feed_identity_survives_reordering_and_duplicates(monkeypatch, board):
     payload = _feed_payload()
 
     async def get(**kwargs):
-        assert kwargs["url"] == fastbull.FEED_URL
+        assert kwargs["url"] == (fastbull.FEED_URL_EN if board == "en" else fastbull.FEED_URL_ZH)
         assert kwargs["no_cache"] is True
         assert kwargs["ttl"] == fastbull.config.NEWSFLASH_CACHE_TTL
         assert kwargs["response_type"] == "json"
-        assert kwargs["params"]["checkImportant"] == ("1" if board == "important" else "0")
+        if board == "en":
+            assert kwargs["params"] == {"pageSize": str(fastbull.FEED_PAGE_SIZE)}
+        else:
+            assert kwargs["params"]["checkImportant"] == ("1" if board == "important" else "0")
         return RequestResult(False, UPDATED, payload)
 
     monkeypatch.setattr(fastbull, "get", get)
@@ -50,7 +53,9 @@ async def test_fastbull_feed_identity_survives_reordering_and_duplicates(monkeyp
     # The important board keeps only important==1 rows even when the upstream
     # filter is silent; the express board keeps the mixed feed.
     assert len(result.data) == len({i.id for i in result.data}) == (1 if board == "important" else 2)
-    assert all(i.id.startswith("/cn/fastshort/") for i in result.data)
+    prefix = "/fastshort/" if board == "en" else "/cn/fastshort/"
+    assert all(i.id.startswith(prefix) for i in result.data)
+    assert all(i.url.startswith("https://www.fastbull.com" + prefix) for i in result.data)
     assert all(i.timestamp and i.timestamp > 1_000_000_000_000 for i in result.data)
     assert all(i.url != fastbull.SOURCE_LINK for i in result.data)
     if board == "important":

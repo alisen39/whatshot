@@ -18,15 +18,20 @@ ROUTE_NAME = "fastbull"
 SOURCE_LINK = "https://www.fastbull.com/"
 # The express feed is the fastbull-news-service JSON gateway behind the FastBull
 # apps and the .cn homepage ticker. The api.fastbull.cn host serves the zh
-# edition; api.fastbull.com would serve en. The legacy .com SSR page now 302s
-# CN clients to the .cn trading site, so the JSON feed is the geo-independent
-# source of truth for flash boards.
-FEED_URL = "https://api.fastbull.cn/fastbull-news-service/api/getNewsPageByTagIds"
+# edition; api.fastbull.com serves the en edition (pinned via the verified
+# lang: en-us header; api.fastbull.cn is zh-locked and ignores lang headers).
+# The zh and en editions are parallel translations with disjoint ID namespaces.
+# The legacy .com SSR page now 302s CN clients to the .cn trading site, so the
+# JSON feeds are the geo-independent source of truth for flash boards.
+FEED_URL_ZH = "https://api.fastbull.cn/fastbull-news-service/api/getNewsPageByTagIds"
+FEED_URL_EN = "https://api.fastbull.com/fastbull-news-service/api/getNewsPageByTagIds"
 FEED_PAGE_SIZE = 50
 FLASH_ID_PREFIX = "/cn/fastshort/"
+EN_FLASH_ID_PREFIX = "/fastshort/"
 TYPE_MAP = {
     "express": "快讯",
     "important": "重要快讯",
+    "en": "英文快讯",
     "news": "头条",
 }
 # The 头条 board has no JSON equivalent; it stays on the legacy SSR page.
@@ -39,6 +44,13 @@ FEED_HEADERS = {
     ),
     "Accept": "application/json, text/plain, */*",
     "Referer": "https://www.fastbull.cn/",
+}
+FEED_HEADERS_EN = {
+    **FEED_HEADERS,
+    "Referer": "https://www.fastbull.com/",
+    # Verified edition pin: en-us equals the .com default; zh-cn would switch
+    # this host to the zh edition.
+    "lang": "en-us",
 }
 SSR_HEADERS = {
     "User-Agent": (
@@ -77,16 +89,22 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
 
 
 async def _get_feed_list(board_type: str, no_cache: bool) -> dict:
+    if board_type == "en":
+        url, headers = FEED_URL_EN, FEED_HEADERS_EN
+        params = {"pageSize": str(FEED_PAGE_SIZE)}
+    else:
+        url, headers = FEED_URL_ZH, FEED_HEADERS
+        params = {
+            "pageSize": str(FEED_PAGE_SIZE),
+            "checkImportant": "1" if board_type == "important" else "0",
+        }
     result = await get(
-        url=FEED_URL,
+        url=url,
         no_cache=no_cache,
         ttl=config.NEWSFLASH_CACHE_TTL,
         response_type="json",
-        params={
-            "pageSize": str(FEED_PAGE_SIZE),
-            "checkImportant": "1" if board_type == "important" else "0",
-        },
-        headers=FEED_HEADERS,
+        params=params,
+        headers=headers,
     )
     envelope = result.data
     if not isinstance(envelope, dict) or envelope.get("code") != 0:
@@ -108,7 +126,7 @@ async def _get_feed_list(board_type: str, no_cache: bool) -> dict:
         native_id = str(node.get("path") or "")
         if not _NATIVE_ID_RE.fullmatch(native_id):
             raise ValueError("FastBull flash is missing its native id")
-        item_id = FLASH_ID_PREFIX + native_id
+        item_id = (EN_FLASH_ID_PREFIX if board_type == "en" else FLASH_ID_PREFIX) + native_id
         if item_id in seen:
             continue
         title = _text(node.get("newsTitle"))
@@ -137,10 +155,10 @@ async def _get_feed_list(board_type: str, no_cache: bool) -> dict:
                 mobileUrl=url,
             )
         )
-    if not data and board_type == "express":
+    if not data and board_type != "important":
         raise ValueError("FastBull express feed is empty")
     # The important board filters to important==1 flashes, so an empty page is
-    # a legitimate quiet-window state there.
+    # a legitimate quiet-window state there; express and en must never be empty.
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
