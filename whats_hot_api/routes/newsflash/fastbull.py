@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import json
 import re
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
 from starlette.requests import Request
 
 from whats_hot_api.config import config
 from whats_hot_api.models import NewsFlashItem, RouterData
-from whats_hot_api.utils.get_time import get_time
-from whats_hot_api.utils.http_client import get
+from whats_hot_api.utils.http_client import get, post
 from whats_hot_api.utils.newsflash import content_status, to_int
 
 ROUTE_NAME = "fastbull"
@@ -34,8 +32,9 @@ TYPE_MAP = {
     "en": "英文快讯",
     "news": "头条",
 }
-# The 头条 board has no JSON equivalent; it stays on the legacy SSR page.
-_PATHS = {"news": "/cn/news"}
+# The .cn host returns no articles for this endpoint. Pin the Chinese edition
+# on .com and select news only (1); analyst (2) and institution (5) are separate.
+NEWS_URL = "https://api.fastbull.com/fastbull-news-service/api/getNewsPageOrderByTimeDesc"
 _NATIVE_ID_RE = re.compile(r"\d+(?:_\d+)*")
 FEED_HEADERS = {
     "User-Agent": (
@@ -51,14 +50,6 @@ FEED_HEADERS_EN = {
     # Verified edition pin: en-us equals the .com default; zh-cn would switch
     # this host to the zh edition.
     "lang": "en-us",
-}
-SSR_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) "
-        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
 ROUTE_META: dict = {
@@ -117,12 +108,12 @@ async def _get_feed_list(board_type: str, no_cache: bool) -> dict:
     if not isinstance(payload, dict) or not isinstance(payload.get("pageDatas"), list):
         # Invalid upstream params (e.g. bad pageSize) also land here with
         # bodyMessage null; treat both as an incompatible feed, not an empty list.
-        raise ValueError("FastBull feed is missing its pageDatas list")
+        raise ValueError("FastBull feed is missing its pageDatas list")  # noqa: TRY004 - invalid upstream data
     data: list[NewsFlashItem] = []
     seen: set[str] = set()
     for node in payload["pageDatas"]:
         if not isinstance(node, dict):
-            raise ValueError("FastBull feed row is not an object")
+            raise ValueError("FastBull feed row is not an object")  # noqa: TRY004 - invalid upstream data
         native_id = str(node.get("path") or "")
         if not _NATIVE_ID_RE.fullmatch(native_id):
             raise ValueError("FastBull flash is missing its native id")
@@ -167,40 +158,49 @@ async def _get_feed_list(board_type: str, no_cache: bool) -> dict:
 
 
 async def _get_news_list(no_cache: bool) -> dict:
-    result = await get(
-        url=urljoin(SOURCE_LINK, _PATHS["news"]),
+    result = await post(
+        url=NEWS_URL,
         no_cache=no_cache,
         ttl=config.NEWSFLASH_CACHE_TTL,
-        response_type="text",
-        headers={**SSR_HEADERS, "Referer": SOURCE_LINK},
+        response_type="json",
+        headers={"lang": "zh-cn"},
+        body={"pageSize": FEED_PAGE_SIZE, "showNewsTypeList": [1]},
     )
-    soup = BeautifulSoup(result.data, "lxml")
+    envelope = result.data
+    if not isinstance(envelope, dict) or envelope.get("code") != 0:
+        raise ValueError("FastBull news envelope is not a success response")
+    body = envelope.get("bodyMessage")
+    try:
+        payload = json.loads(body) if isinstance(body, str) else body
+    except json.JSONDecodeError as error:
+        raise ValueError("FastBull news bodyMessage is not valid JSON") from error
+    if not isinstance(payload, dict) or not isinstance(payload.get("pageDatas"), list):
+        raise ValueError("FastBull news is missing its pageDatas list")  # noqa: TRY004 - invalid upstream data
     data: list[NewsFlashItem] = []
-    nodes = soup.select(".news_main .trending_type, #report_list-main .trending_type")
-    if not nodes:
-        raise ValueError("FastBull news main list is missing or empty")
     seen: set[str] = set()
-    for node in nodes:
-        link = node.select_one(".title_name, .title")
-        title = _text(link.get_text(" ", strip=True) if link else "")
-        if not title:
-            continue
-        href = str(node.get("href") or "")
-        match = re.fullmatch(r"/cn/news-?detail/(\d+(?:_\d+)*)/?", urlsplit(href).path)
-        if not match:
-            raise ValueError("FastBull article is missing its detail link")
-        # Both spelling variants identify the same article. Keep legacy IDs.
-        item_id = f"/cn/news-detail/{match.group(1)}"
-        url = urljoin(SOURCE_LINK, href)
-        if urlsplit(url).scheme not in {"http", "https"} or urlsplit(url).hostname != "www.fastbull.com":
-            raise ValueError("FastBull item has an unexpected detail host")
+    for node in payload["pageDatas"]:
+        if not isinstance(node, dict):
+            raise ValueError("FastBull news row is not an object")  # noqa: TRY004 - invalid upstream data
+        if node.get("langId") != 1 or node.get("showNewsType") != 1:
+            raise ValueError("FastBull news has an unexpected language or article type")
+        native_id = str(node.get("path") or "")
+        if not _NATIVE_ID_RE.fullmatch(native_id):
+            raise ValueError("FastBull article is missing its native id")
+        if node.get("originalStatus") not in (0, 1):
+            raise ValueError("FastBull article has an invalid detail URL variant")
+        item_id = f"/cn/news-detail/{native_id}"
         if item_id in seen:
             continue
+        title = _text(node.get("title"))
+        if not title:
+            continue
+        timestamp = to_int(node.get("pubTime"))
+        if timestamp is None or timestamp < 1_000_000_000_000:
+            raise ValueError("FastBull article is missing its publication time in milliseconds")
         seen.add(item_id)
-        date_node = node.select_one("[data-date]")
-        timestamp = get_time(node.get("data-date") or (date_node.get("data-date") if date_node else None))
-        summary_node = node.select_one(".content, .desc, .summary, .brief, .tips")
-        summary = _text(summary_node.get_text(" ", strip=True) if summary_node else "")
+        detail = "newsdetail" if node["originalStatus"] == 1 else "news-detail"
+        url = urljoin(SOURCE_LINK, f"/cn/{detail}/{native_id}")
+        summary = _text(node.get("summary")) or _text(node.get("brief"))
         content = summary or title
         data.append(
             NewsFlashItem(
@@ -216,6 +216,8 @@ async def _get_news_list(no_cache: bool) -> dict:
                 mobileUrl=url,
             )
         )
+    if not data:
+        raise ValueError("FastBull news feed is empty")
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,

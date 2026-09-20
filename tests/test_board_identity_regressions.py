@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-from bs4 import BeautifulSoup
 from starlette.requests import Request
 
 from whats_hot_api.routes.hotlist import baidu, eastmoney_market, openai_news
@@ -73,27 +72,31 @@ async def test_fastbull_feed_identity_survives_reordering_and_duplicates(monkeyp
 
 
 async def test_fastbull_news_identity_survives_reordering(monkeypatch):
-    html = (FIXTURES / "fastbull.html").read_text()
+    rows = json.loads((FIXTURES / "fastbull-news.json").read_text())
 
-    async def get(**kwargs):
-        assert kwargs["url"] == "https://www.fastbull.com" + fastbull._PATHS["news"]
+    async def post(**kwargs):
+        assert kwargs["url"] == fastbull.NEWS_URL
         assert kwargs["no_cache"] is True
         assert kwargs["ttl"] == fastbull.config.NEWSFLASH_CACHE_TTL
-        assert kwargs["response_type"] == "text"
-        return RequestResult(False, UPDATED, html)
+        assert kwargs["response_type"] == "json"
+        assert kwargs["headers"] == {"lang": "zh-cn"}
+        assert kwargs["body"] == {"pageSize": 50, "showNewsTypeList": [1]}
+        return RequestResult(False, UPDATED, {"code": 0, "bodyMessage": json.dumps({"pageDatas": rows})})
 
-    monkeypatch.setattr(fastbull, "get", get)
+    monkeypatch.setattr(fastbull, "post", post)
     result = await fastbull.handle_route(request("news"), no_cache=True)
     assert result.updateTime == UPDATED
     assert len(result.data) == len({i.id for i in result.data}) == 2
     assert all(i.id.startswith("/cn/news-detail/") for i in result.data)
     assert all(i.timestamp and i.timestamp > 1_000_000_000_000 for i in result.data)
     assert all(i.summary and i.content == i.summary for i in result.data)
+    assert result.data[0].url == "https://www.fastbull.com/cn/newsdetail/4386628_1"
+    assert result.data[1].url == "https://www.fastbull.com/cn/news-detail/4386626_1"
 
-    soup = BeautifulSoup(html, "lxml")
-    parent = soup.select_one(".news_main")
-    parent.insert(0, parent.contents[-1].extract())
+    rows.reverse()
+    rows.append(copy.deepcopy(rows[0]))
     again = await fastbull.handle_route(request("news"), no_cache=True)
+    assert len(again.data) == 2
     assert {i.title: i.id for i in again.data} == {i.title: i.id for i in result.data}
 
 
@@ -113,14 +116,34 @@ async def test_fastbull_feed_rejects_incompatible_envelopes(monkeypatch, payload
         await fastbull.handle_route(request("express"))
 
 
-@pytest.mark.parametrize("html", [
-    '<html><h1>Access denied</h1></html>',
-    '<div class="news_main"><a class="trending_type" href="/cn/other-page"><h4 class="title">消息</h4></a></div>',
+@pytest.mark.parametrize("payload", [
+    "<html>Access denied</html>",
+    {"code": -1, "bodyMessage": None},
+    {"code": 0, "bodyMessage": "not-json"},
+    {"code": 0, "bodyMessage": None},
+    {"code": 0, "bodyMessage": {"pageDatas": None}},
+    {"code": 0, "bodyMessage": {"pageDatas": []}},
+    {"code": 0, "bodyMessage": {"pageDatas": ["not-an-object"]}},
 ])
-async def test_fastbull_news_rejects_missing_identity_or_main_list(monkeypatch, html):
-    async def get(**kwargs):
-        return RequestResult(False, UPDATED, html)
-    monkeypatch.setattr(fastbull, "get", get)
+async def test_fastbull_news_rejects_incompatible_envelope(monkeypatch, payload):
+    async def post(**kwargs):
+        return RequestResult(False, UPDATED, payload)
+    monkeypatch.setattr(fastbull, "post", post)
+    with pytest.raises(ValueError, match="FastBull"):
+        await fastbull.handle_route(request("news"))
+
+
+@pytest.mark.parametrize("field,value", [
+    ("path", "invalid/id"), ("path", None), ("langId", 0),
+    ("showNewsType", 2), ("showNewsType", 5), ("originalStatus", None),
+    ("pubTime", None), ("pubTime", 1789715522), ("title", " "),
+])
+async def test_fastbull_news_rejects_wrong_board_or_invalid_item(monkeypatch, field, value):
+    row = json.loads((FIXTURES / "fastbull-news.json").read_text())[0]
+    row[field] = value
+    async def post(**kwargs):
+        return RequestResult(False, UPDATED, {"code": 0, "bodyMessage": {"pageDatas": [row]}})
+    monkeypatch.setattr(fastbull, "post", post)
     with pytest.raises(ValueError, match="FastBull"):
         await fastbull.handle_route(request("news"))
 
