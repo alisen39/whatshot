@@ -36,18 +36,40 @@ def _request(query_string: bytes = b"") -> Request:
     })
 
 
+def _fastbull_feed_envelope(rows: list[dict]) -> dict:
+    return {
+        "code": 0,
+        "subCode": "1000000",
+        "message": "操作成功",
+        "bodyMessage": json.dumps({"pageDatas": rows, "pageSize": len(rows)}, ensure_ascii=False),
+    }
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("board_type", "path"), (("express", "/cn/express-news"), ("news", "/cn/news")))
-async def test_fastbull_native_boards_are_newsflash(monkeypatch, board_type, path):
-    async def fake_get(**kwargs):  # noqa: ANN003
-        assert kwargs["url"].endswith(path)
+@pytest.mark.parametrize("board_type", ("express", "important"))
+async def test_fastbull_flash_boards_use_json_feed(monkeypatch, board_type):
+    async def fake_get(**kwargs):
+        assert kwargs["url"] == fastbull.FEED_URL_ZH
+        assert kwargs["response_type"] == "json"
+        assert kwargs["no_cache"] is True
         assert kwargs["ttl"] == fastbull.config.NEWSFLASH_CACHE_TTL
+        assert kwargs["params"] == {
+            "pageSize": str(fastbull.FEED_PAGE_SIZE),
+            "checkImportant": "1" if board_type == "important" else "0",
+        }
         return RequestResult(
             False,
             "fastbull-update",
-            '<div id="main-content"><div class="news-list" data-id="123" data-date="2026-07-30T12:30:00+08:00"><span class="title_name">【市场】市场消息</span><div data-href="/cn/fastshort/123"></div><p class="summary">快讯摘要</p></div></div>'
-            if board_type == "express" else
-            '<div class="news_main"><a class="trending_type" href="/cn/news-detail/123" data-date="2026-07-30T12:30:00+08:00"><h4 class="title">【市场】市场消息</h4><p class="brief">快讯摘要</p></a></div>',
+            _fastbull_feed_envelope([
+                {
+                    "newsId": "4280823_214_1",
+                    "path": "4280823_214_1",
+                    "newsTitle": "分析师：沃什在利率问题上已把自己逼入墙角。",
+                    "newsType": 0,
+                    "important": 1,
+                    "releasedDate": 1789578839561,
+                },
+            ]),
         )
 
     monkeypatch.setattr(fastbull, "get", fake_get)
@@ -55,16 +77,99 @@ async def test_fastbull_native_boards_are_newsflash(monkeypatch, board_type, pat
 
     assert result.kind == "newsflash"
     assert result.type == fastbull.TYPE_MAP[board_type]
+    item = result.data[0]
+    assert isinstance(item, NewsFlashItem)
+    assert item.id == "/cn/fastshort/4280823_214_1"
+    assert item.title == item.content == "分析师：沃什在利率问题上已把自己逼入墙角。"
+    assert item.contentStatus == "full"
+    assert item.isImportant is True
+    assert item.timestamp == 1789578839561
+    assert item.url == "https://www.fastbull.com/cn/fastshort/4280823_214_1"
+
+
+@pytest.mark.asyncio
+async def test_fastbull_important_board_allows_empty_window(monkeypatch):
+    async def fake_get(**kwargs):
+        assert kwargs["params"]["checkImportant"] == "1"
+        return RequestResult(False, "fastbull-update", _fastbull_feed_envelope([]))
+
+    monkeypatch.setattr(fastbull, "get", fake_get)
+    result = await fastbull.handle_route(_request(b"type=important"), no_cache=True)
+    assert result.total == 0
+
+
+@pytest.mark.asyncio
+async def test_fastbull_en_board_uses_en_edition_gateway(monkeypatch):
+    async def fake_get(**kwargs):
+        assert kwargs["url"] == fastbull.FEED_URL_EN
+        assert kwargs["headers"]["lang"] == "en-us"
+        assert kwargs["headers"]["Referer"] == "https://www.fastbull.com/"
+        assert kwargs["params"] == {"pageSize": str(fastbull.FEED_PAGE_SIZE)}
+        assert kwargs["no_cache"] is True
+        return RequestResult(
+            False,
+            "fastbull-update",
+            _fastbull_feed_envelope([
+                {
+                    "newsId": "4283409_1_0",
+                    "path": "4283409_1_0",
+                    "newsTitle": "Russian President Putin: Russia's Budget",
+                    "newsType": 0,
+                    "important": 0,
+                    "langId": 0,
+                    "releasedDate": 1789666047235,
+                },
+            ]),
+        )
+
+    monkeypatch.setattr(fastbull, "get", fake_get)
+    result = await fastbull.handle_route(_request(b"type=en"), no_cache=True)
+
+    assert result.kind == "newsflash"
+    assert result.type == fastbull.TYPE_MAP["en"]
+    item = result.data[0]
+    # The en edition is a disjoint ID namespace with its own /fastshort/ URLs.
+    assert item.id == "/fastshort/4283409_1_0"
+    assert item.title == item.content == "Russian President Putin: Russia's Budget"
+    assert item.contentStatus == "full"
+    assert item.isImportant is False
+    assert item.timestamp == 1789666047235
+    assert item.url == "https://www.fastbull.com/fastshort/4283409_1_0"
+
+
+
+
+@pytest.mark.asyncio
+async def test_fastbull_news_board_is_newsflash(monkeypatch):
+    async def fake_post(**kwargs):
+        assert kwargs["url"] == fastbull.NEWS_URL
+        assert kwargs["ttl"] == fastbull.config.NEWSFLASH_CACHE_TTL
+        return RequestResult(
+            False,
+            "fastbull-update",
+            {"code": 0, "bodyMessage": {"pageDatas": [{
+                "path": "123", "title": "【市场】市场消息", "summary": "", "brief": "快讯摘要",
+                "pubTime": 1785385800000, "langId": 1, "showNewsType": 1, "originalStatus": 0,
+            }]}},
+        )
+
+    monkeypatch.setattr(fastbull, "post", fake_post)
+    result = await fastbull.handle_route(_request(b"type=news"), no_cache=True)
+
+    assert result.kind == "newsflash"
+    assert result.type == fastbull.TYPE_MAP["news"]
     assert isinstance(result.data[0], NewsFlashItem)
     assert result.data[0].title == "【市场】市场消息"
     assert result.data[0].content == "快讯摘要"
+    assert result.data[0].contentStatus == "summary"
+
 
 
 @pytest.mark.asyncio
 async def test_wallstreetcn_uses_full_newsflash_model(monkeypatch):
     long_body = "华尔街见闻正文" + "很长" * 260
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-06-29T00:00:00+00:00",
@@ -111,7 +216,7 @@ async def test_wallstreetcn_uses_full_newsflash_model(monkeypatch):
     ),
 )
 async def test_wallstreetcn_native_featured_boards_are_newsflash(monkeypatch, board_type, endpoint, payload):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert endpoint in kwargs["url"]
         return RequestResult(False, "wscn-update", payload)
 
@@ -126,7 +231,7 @@ async def test_wallstreetcn_native_featured_boards_are_newsflash(monkeypatch, bo
 async def test_eastmoney_maps_important_channel_and_symbols(monkeypatch):
     summary = "【轮胎涨价背后的温差与变局】" + "正文" * 260 + "..."
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-06-29T00:00:00+00:00",
@@ -167,7 +272,7 @@ async def test_eastmoney_maps_important_channel_and_symbols(monkeypatch):
 async def test_sina_finance_uses_docurl_and_focus_metrics(monkeypatch):
     content = "【委内瑞拉强震遇难人数升至1450人】" + "当地时间消息。" * 80
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-06-29T00:00:00+00:00",
@@ -214,7 +319,7 @@ async def test_sina_finance_uses_docurl_and_focus_metrics(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sina_finance_central_bank_uses_tag_seven(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["params"]["tag"] == "7"
         return RequestResult(
             False,
@@ -254,7 +359,7 @@ async def test_sina_finance_central_bank_uses_tag_seven(monkeypatch):
 async def test_cls_prefers_content_and_maps_importance(monkeypatch):
     content = "【普京召开保障国内市场燃料供应的会议】" + "完整正文" * 180
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-06-29T00:00:00+00:00",
@@ -304,7 +409,7 @@ async def test_cls_prefers_content_and_maps_importance(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cls_category_board_filters_paid_items_and_maps_subjects(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         query = parse_qs(urlparse(kwargs["url"]).query)
         assert query["category"] == ["hk_us"]
         assert query["refresh_type"] == ["1"]
@@ -352,7 +457,7 @@ async def test_cls_category_board_filters_paid_items_and_maps_subjects(monkeypat
 
 @pytest.mark.asyncio
 async def test_cls_rejects_upstream_business_error(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "cls-update",
@@ -371,7 +476,7 @@ async def test_cls_rejects_upstream_business_error(monkeypatch):
     (("depth", "/v3/depth/home/assembled/1000", "深度"), ("hot", "/v2/article/hot/list", "热门")),
 )
 async def test_cls_native_article_boards_are_newsflash(monkeypatch, board_type, endpoint, label):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert endpoint in kwargs["url"]
         payload = {"data": {"depth_list": [{"id": 8, "title": "深度报道", "brief": "摘要", "ctime": 1783330100}]}}
         if board_type == "hot":
@@ -390,7 +495,7 @@ async def test_cls_native_article_boards_are_newsflash(monkeypatch, board_type, 
 async def test_21jingji_maps_quick_news_payload(monkeypatch):
     content = "南方财经7月6日电，截至目前，南向资金净买入额达170亿港元。"
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-06T07:30:00+00:00",
@@ -448,7 +553,7 @@ async def test_21jingji_maps_quick_news_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_futunn_maps_flash_news_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-06T07:40:00+00:00",
@@ -508,7 +613,7 @@ async def test_futunn_maps_flash_news_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_gelonghui_maps_live_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-06T07:50:00+00:00",
@@ -590,7 +695,7 @@ async def test_hexun_maps_jsonp_global_news_payload(monkeypatch):
         ],
     }
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-06T08:00:00+00:00",
@@ -621,7 +726,7 @@ async def test_hexun_maps_jsonp_global_news_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jiemian_maps_and_sorts_flash_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         assert kwargs["cache_key"].endswith("window=latest")
         return RequestResult(
             False,
@@ -674,7 +779,7 @@ async def test_jiemian_maps_and_sorts_flash_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jin10_maps_nested_flash_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         assert kwargs["headers"]["x-app-id"] == "bVBF4FyRTn5NJF5n"
         return RequestResult(
             False,
@@ -744,7 +849,7 @@ async def test_jin10_maps_nested_flash_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jrj_posts_and_maps_news_flash_payload(monkeypatch):
-    async def fake_post(**kwargs):  # noqa: ANN003
+    async def fake_post(**kwargs):
         assert kwargs["body"] == {}
         assert kwargs["headers"]["Content-Type"] == "application/json"
         return RequestResult(
@@ -819,7 +924,7 @@ async def test_jrj_posts_and_maps_news_flash_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ths_10jqka_maps_global_news_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-06T08:40:00+00:00",
@@ -889,7 +994,7 @@ async def test_ths_10jqka_maps_global_news_payload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_yicai_maps_quick_news_payload(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
+    async def fake_get(**kwargs):
         return RequestResult(
             False,
             "2026-07-06T08:50:00+00:00",

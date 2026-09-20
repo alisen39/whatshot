@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-from bs4 import BeautifulSoup
 from starlette.requests import Request
 
 from whats_hot_api.routes.hotlist import baidu, eastmoney_market, openai_news
@@ -21,50 +20,132 @@ def request(board: str) -> Request:
     return Request({"type": "http", "query_string": f"type={board}".encode()})
 
 
-@pytest.mark.parametrize("board", ["express", "news"])
-async def test_fastbull_native_identity_and_main_content(monkeypatch, board):
-    html = (FIXTURES / "fastbull.html").read_text()
+def _feed_payload() -> dict:
+    rows = json.loads((FIXTURES / "fastbull-express.json").read_text())
+    return {
+        "code": 0,
+        "subCode": "1000000",
+        "message": "操作成功",
+        "bodyMessage": json.dumps({"pageDatas": rows, "pageSize": len(rows)}, ensure_ascii=False),
+    }
+
+
+@pytest.mark.parametrize("board", ["express", "important", "en"])
+async def test_fastbull_feed_identity_survives_reordering_and_duplicates(monkeypatch, board):
+    payload = _feed_payload()
 
     async def get(**kwargs):
-        assert kwargs["url"] == "https://www.fastbull.com" + fastbull._PATHS[board]
+        assert kwargs["url"] == (fastbull.FEED_URL_EN if board == "en" else fastbull.FEED_URL_ZH)
         assert kwargs["no_cache"] is True
         assert kwargs["ttl"] == fastbull.config.NEWSFLASH_CACHE_TTL
-        assert kwargs["response_type"] == "text"
-        return RequestResult(False, UPDATED, html)
+        assert kwargs["response_type"] == "json"
+        if board == "en":
+            assert kwargs["params"] == {"pageSize": str(fastbull.FEED_PAGE_SIZE)}
+        else:
+            assert kwargs["params"]["checkImportant"] == ("1" if board == "important" else "0")
+        return RequestResult(False, UPDATED, payload)
 
     monkeypatch.setattr(fastbull, "get", get)
     result = await fastbull.handle_route(request(board), no_cache=True)
     assert result.kind == "newsflash"
     assert result.updateTime == UPDATED
-    assert len(result.data) == len({i.id for i in result.data}) == 2
-    prefix = "/cn/fastshort/" if board == "express" else "/cn/news-detail/"
+    # The important board keeps only important==1 rows even when the upstream
+    # filter is silent; the express board keeps the mixed feed.
+    assert len(result.data) == len({i.id for i in result.data}) == (1 if board == "important" else 2)
+    prefix = "/fastshort/" if board == "en" else "/cn/fastshort/"
     assert all(i.id.startswith(prefix) for i in result.data)
+    assert all(i.url.startswith("https://www.fastbull.com" + prefix) for i in result.data)
     assert all(i.timestamp and i.timestamp > 1_000_000_000_000 for i in result.data)
     assert all(i.url != fastbull.SOURCE_LINK for i in result.data)
-    if board == "news":
-        assert all(i.summary and i.content == i.summary for i in result.data)
+    if board == "important":
+        assert all(i.isImportant is True for i in result.data)
+    else:
+        assert sorted(i.isImportant for i in result.data) == [False, True]
 
-    # Newest-first order changes and repeated cards cannot change source IDs.
-    soup = BeautifulSoup(html, "lxml")
-    parent = soup.select_one("#main-content" if board == "express" else ".news_main")
-    parent.insert(0, parent.contents[-1].extract())
-    html = str(soup)
+    # Newest-first order changes and repeated rows cannot change source IDs.
+    rows = json.loads(payload["bodyMessage"])["pageDatas"]
+    rows.append(copy.deepcopy(rows[0]))
+    rows.insert(0, rows.pop())
+    payload["bodyMessage"] = json.dumps({"pageDatas": rows}, ensure_ascii=False)
     again = await fastbull.handle_route(request(board), no_cache=True)
     assert {i.title: i.id for i in again.data} == {i.title: i.id for i in result.data}
 
 
-@pytest.mark.parametrize("board,html", [
-    ("express", '<div id="side_fast_news"><div class="news-list">sidebar only</div></div>'),
-    ("news", '<html><h1>Access denied</h1></html>'),
-    ("express", '<div id="main-content"><div class="news-list"><span class="title_name">消息</span></div></div>'),
-    ("express", '<div id="main-content"><div class="news-list" data-id="123"><span class="title_name">消息</span><div data-href="/cn/fastshort/456"></div></div></div>'),
+async def test_fastbull_news_identity_survives_reordering(monkeypatch):
+    rows = json.loads((FIXTURES / "fastbull-news.json").read_text())
+
+    async def post(**kwargs):
+        assert kwargs["url"] == fastbull.NEWS_URL
+        assert kwargs["no_cache"] is True
+        assert kwargs["ttl"] == fastbull.config.NEWSFLASH_CACHE_TTL
+        assert kwargs["response_type"] == "json"
+        assert kwargs["headers"] == {"lang": "zh-cn"}
+        assert kwargs["body"] == {"pageSize": 50, "showNewsTypeList": [1]}
+        return RequestResult(False, UPDATED, {"code": 0, "bodyMessage": json.dumps({"pageDatas": rows})})
+
+    monkeypatch.setattr(fastbull, "post", post)
+    result = await fastbull.handle_route(request("news"), no_cache=True)
+    assert result.updateTime == UPDATED
+    assert len(result.data) == len({i.id for i in result.data}) == 2
+    assert all(i.id.startswith("/cn/news-detail/") for i in result.data)
+    assert all(i.timestamp and i.timestamp > 1_000_000_000_000 for i in result.data)
+    assert all(i.summary and i.content == i.summary for i in result.data)
+    assert result.data[0].url == "https://www.fastbull.com/cn/newsdetail/4386628_1"
+    assert result.data[1].url == "https://www.fastbull.com/cn/news-detail/4386626_1"
+
+    rows.reverse()
+    rows.append(copy.deepcopy(rows[0]))
+    again = await fastbull.handle_route(request("news"), no_cache=True)
+    assert len(again.data) == 2
+    assert {i.title: i.id for i in again.data} == {i.title: i.id for i in result.data}
+
+
+@pytest.mark.parametrize("payload", [
+    {"code": -1, "message": "error"},
+    {"code": 0, "bodyMessage": None},
+    {"code": 0, "bodyMessage": json.dumps({"pageDatas": None})},
+    {"code": 0, "bodyMessage": json.dumps({"pageDatas": ["not-an-object"]})},
+    {"code": 0, "bodyMessage": json.dumps({"pageDatas": [{"path": "not/an/id", "newsTitle": "消息"}]})},
+    {"code": 0, "bodyMessage": "not-json"},
 ])
-async def test_fastbull_rejects_missing_identity_or_main_list(monkeypatch, board, html):
+async def test_fastbull_feed_rejects_incompatible_envelopes(monkeypatch, payload):
     async def get(**kwargs):
-        return RequestResult(False, UPDATED, html)
+        return RequestResult(False, UPDATED, payload)
     monkeypatch.setattr(fastbull, "get", get)
     with pytest.raises(ValueError, match="FastBull"):
-        await fastbull.handle_route(request(board))
+        await fastbull.handle_route(request("express"))
+
+
+@pytest.mark.parametrize("payload", [
+    "<html>Access denied</html>",
+    {"code": -1, "bodyMessage": None},
+    {"code": 0, "bodyMessage": "not-json"},
+    {"code": 0, "bodyMessage": None},
+    {"code": 0, "bodyMessage": {"pageDatas": None}},
+    {"code": 0, "bodyMessage": {"pageDatas": []}},
+    {"code": 0, "bodyMessage": {"pageDatas": ["not-an-object"]}},
+])
+async def test_fastbull_news_rejects_incompatible_envelope(monkeypatch, payload):
+    async def post(**kwargs):
+        return RequestResult(False, UPDATED, payload)
+    monkeypatch.setattr(fastbull, "post", post)
+    with pytest.raises(ValueError, match="FastBull"):
+        await fastbull.handle_route(request("news"))
+
+
+@pytest.mark.parametrize("field,value", [
+    ("path", "invalid/id"), ("path", None), ("langId", 0),
+    ("showNewsType", 2), ("showNewsType", 5), ("originalStatus", None),
+    ("pubTime", None), ("pubTime", 1789715522), ("title", " "),
+])
+async def test_fastbull_news_rejects_wrong_board_or_invalid_item(monkeypatch, field, value):
+    row = json.loads((FIXTURES / "fastbull-news.json").read_text())[0]
+    row[field] = value
+    async def post(**kwargs):
+        return RequestResult(False, UPDATED, {"code": 0, "bodyMessage": {"pageDatas": [row]}})
+    monkeypatch.setattr(fastbull, "post", post)
+    with pytest.raises(ValueError, match="FastBull"):
+        await fastbull.handle_route(request("news"))
 
 
 @pytest.mark.parametrize("board", list(baidu.type_map))
