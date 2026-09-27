@@ -48,5 +48,14 @@ async def _get_list(no_cache: bool) -> dict:
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
-        "data": parse_feed(result.data),
+        "data": _parse_items(result.data),
     }
+
+
+def _parse_items(payload: object) -> list:
+    # nature.com intermittently serves its idp cookie-check interstitial in
+    # place of the feed; an empty parse of that page must fail, not return [].
+    items = parse_feed(payload)
+    if not items:
+        raise RuntimeError("nature-bmi feed returned no items (challenge page or empty feed)")
+    return items

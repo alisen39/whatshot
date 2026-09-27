@@ -32,12 +32,16 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
 
 
 def _replace_link(url: str, get_id: bool = False) -> str:
-    match = re.search(r"https://www\.ithome\.com/0/(\d+)/(\d+)\.htm", url)
-    if match and match.group(1) and match.group(2):
-        combined = match.group(1) + match.group(2)
+    # ithome splits the article id across all URL path segments:
+    # /0/999/698.htm -> 999698, /1/001/084.htm -> 1001084 (7-digit era).
+    match = re.search(r"https://www\.ithome\.com/(\d+)/(\d+)/(\d+)\.htm", url)
+    if match:
+        combined = str(int("".join(match.groups())))
         if get_id:
             return combined
         return f"https://m.ithome.com/html/{combined}.htm"
+    if get_id:
+        return ""
     return url
 
 
@@ -46,6 +50,8 @@ async def _get_list(no_cache: bool) -> dict:
     result = await get(url=url, no_cache=no_cache, response_type="text")
     soup = BeautifulSoup(result.data, "lxml")
     items = soup.select(".newslist li")
+    if not items:
+        raise RuntimeError("ithome-xijiayi page returned no newslist items")
     data = []
     for item in items:
         a_tag = item.select_one("a")
@@ -58,6 +64,9 @@ async def _get_list(no_cache: bool) -> dict:
 
         title_el = item.select_one(".newsbody h2")
         title = title_el.get_text().strip() if title_el else ""
+        article_id = _replace_link(href, True)
+        if not article_id or not title:
+            continue
 
         desc_el = item.select_one(".newsbody p")
         desc = desc_el.get_text().strip() if desc_el else ""
@@ -72,7 +81,7 @@ async def _get_list(no_cache: bool) -> dict:
 
         data.append(
             ListItem(
-                id=int(_replace_link(href, True)) if href else 100000,
+                id=int(article_id),
                 title=title,
                 desc=desc or None,
                 cover=cover,
@@ -82,4 +91,6 @@ async def _get_list(no_cache: bool) -> dict:
                 mobileUrl=_replace_link(href) if href else "",
             )
         )
+    if not data:
+        raise RuntimeError("ithome-xijiayi page returned no valid article items")
     return {"from_cache": result.from_cache, "update_time": result.update_time, "data": data}

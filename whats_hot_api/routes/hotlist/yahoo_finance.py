@@ -29,6 +29,7 @@ type_map: dict[str, str] = {
 ROUTE_META: dict[str, Any] = {"name": ROUTE_NAME, "title": "Yahoo Finance", "description": "Yahoo Finance 财经新闻、热门股票与美股市场榜单", "link": "https://finance.yahoo.com/markets/stocks/", "params": {"type": {"name": "榜单类型", "type": type_map}}}
 
 _MAX_ITEMS = 25
+_TRENDING_MIN_ROWS = 10  # trending currently serves ~18 rows upstream
 _SYMBOL_RE = re.compile(r"^[A-Z0-9^.=-]+$")
 _MARKET_TYPES: dict[str, tuple[str, str, str]] = {
     "trending": (
@@ -146,20 +147,16 @@ def _parse_market_table(
     html_text: object,
     board_type: str,
     heading: str,
-    active_tab_id: str,
+    _active_tab_id: str,  # upstream no longer SSRs the selected tab
 ) -> list[ListItem]:
     if not isinstance(html_text, str) or not html_text.strip():
         return []
     soup = BeautifulSoup(html_text, "lxml")
-    active_tab = soup.select_one(f"#{active_tab_id}[aria-selected='true']")
     headings = {_text(node.get_text(" ", strip=True)) for node in soup.select("h1")}
     table = soup.select_one("[data-testid='markets-table-wrapper'] table")
     rows = table.select("tbody tr[data-testid='data-table-v2-row']") if table else []
-    if (
-        active_tab is None
-        or heading not in headings
-        or len(rows) != _MAX_ITEMS
-    ):
+    minimum_rows = _TRENDING_MIN_ROWS if board_type == "trending" else _MAX_ITEMS
+    if heading not in headings or len(rows) < minimum_rows:
         return []
 
     data: list[ListItem] = []
@@ -190,7 +187,6 @@ def _parse_market_table(
         href = _text(symbol_node.get("href") if symbol_node else "")
         if (
             _SYMBOL_RE.fullmatch(symbol) is None
-            or symbol in seen_symbols
             or not name
             or price is None
             or price < 0
@@ -199,7 +195,10 @@ def _parse_market_table(
             or volume < 0
             or href != f"/quote/{symbol}/"
         ):
-            return []
+            # Skip dirty rows; upstream tables occasionally drop fields.
+            continue
+        if symbol in seen_symbols:
+            continue
         seen_symbols.add(symbol)
         url = f"https://finance.yahoo.com/quote/{quote(symbol, safe='')}/"
         data.append(
@@ -220,6 +219,8 @@ def _parse_market_table(
                 mobileUrl=url,
             )
         )
+    if len(data) < minimum_rows:
+        return []
     return data
 
 

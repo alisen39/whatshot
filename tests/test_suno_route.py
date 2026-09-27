@@ -8,7 +8,6 @@ from starlette.requests import Request
 from whats_hot_api.routes.hotlist import suno
 from whats_hot_api.utils.http_client import RequestResult
 
-
 PLAYLIST_ID = "23a0d3b1-52b0-4a49-a0b0-9be7fb08d199"
 CLIP_ID = "f8959afc-5ad7-46f4-8607-c3f844c342cc"
 
@@ -17,7 +16,7 @@ def _request(query: bytes = b"") -> Request:
     return Request({
         "type": "http",
         "method": "GET",
-        "path": "/suno/trending",
+        "path": "/suno/staff-picks",
         "query_string": query,
         "headers": [],
     })
@@ -85,9 +84,9 @@ def test_suno_parser_preserves_editorial_order_and_song_identity() -> None:
         metadata={"duration": 117.04, "tags": "stadium anthem"},
     )
     invalid = _clip("not-a-uuid")
-    payload = _payload(_feed("Trending: Sports Anthems", PLAYLIST_ID, _clip(), duplicate, second, invalid))
+    payload = _payload(_feed("Staff Picks", PLAYLIST_ID, _clip(), duplicate, second, invalid))
 
-    parsed = suno._parse_board(payload, "trending")
+    parsed = suno._parse_board(payload, "staff-picks")
     rows = parsed["data"]
 
     assert parsed["link"] == f"https://suno.com/playlist/{PLAYLIST_ID}"
@@ -146,7 +145,7 @@ def test_suno_parser_rejects_ambiguous_matching_feeds() -> None:
 
 @pytest.mark.asyncio
 async def test_suno_route_fetches_public_explore_collection(monkeypatch) -> None:
-    async def fake_post(**kwargs):  # noqa: ANN003
+    async def fake_post(**kwargs):
         assert kwargs["url"] == (
             "https://studio-api-prod.suno.com/api/unified/homepage/explore"
         )
@@ -168,14 +167,14 @@ async def test_suno_route_fetches_public_explore_collection(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
-async def test_suno_route_falls_back_to_trending(monkeypatch) -> None:
-    async def fake_post(**kwargs):  # noqa: ANN003
+async def test_suno_route_falls_back_to_staff_picks(monkeypatch) -> None:
+    async def fake_post(**kwargs):
         return RequestResult(
-            data=_payload(_feed("Trending: Sports Anthems", PLAYLIST_ID, _clip())),
+            data=_payload(_feed("Staff Picks", PLAYLIST_ID, _clip())),
             from_cache=True,
             update_time=datetime(2026, 7, 18, tzinfo=UTC).isoformat(),
         )
 
     monkeypatch.setattr(suno, "post", fake_post)
     result = await suno.handle_route(_request(b"type=unknown"))
-    assert result.type == "主题趋势"
+    assert result.type == "编辑精选"

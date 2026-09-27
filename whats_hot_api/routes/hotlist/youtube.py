@@ -45,6 +45,7 @@ _CLIENT_VERSION = "2.0"
 _VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{11}")
 _SONG_ID_RE = re.compile(r"G:[A-Za-z0-9_-]{6,64}")
 _ARTIST_ID_RE = re.compile(r"/(?:m|g)/[A-Za-z0-9_-]+")
+_MAX_SKIPPED_ROWS = 2
 
 _BOARD_SPECS: dict[str, dict[str, object]] = {
     "videos-daily": {
@@ -229,10 +230,21 @@ def _parse_chart(payload: object, board_type: str) -> list[ListItem]:
     items: list[ListItem] = []
     seen_ids: set[str] = set()
     previous_hot: int | None = None
+    skipped_rows = 0
     for rank, row in enumerate(rows, 1):
         item = _chart_item(row, str(spec["kind"]), rank, end_date)
-        if item is None or item.id in seen_ids:
-            return []
+        if item is None:
+            if not _is_valid_blank_title_row(row, str(spec["kind"]), rank, end_date):
+                return []
+            skipped_rows += 1
+            if skipped_rows > _MAX_SKIPPED_ROWS:
+                return []
+            continue
+        if item.id in seen_ids:
+            skipped_rows += 1
+            if skipped_rows > _MAX_SKIPPED_ROWS:
+                return []
+            continue
         if item.hot is not None:
             if previous_hot is not None and item.hot > previous_hot:
                 return []
@@ -240,6 +252,19 @@ def _parse_chart(payload: object, board_type: str) -> list[ListItem]:
         seen_ids.add(item.id)
         items.append(item)
     return items
+
+
+def _is_valid_blank_title_row(
+    value: object, kind: str, rank: int, end_date: str
+) -> bool:
+    """Recognize the one evidenced dirty-row shape without hiding other failures."""
+    if kind not in {"video", "track", "shorts"} or not isinstance(value, dict):
+        return False
+    if _clean_text(value.get("title")):
+        return False
+    candidate = dict(value)
+    candidate["title"] = "missing-title"
+    return _chart_item(candidate, kind, rank, end_date) is not None
 
 
 def _valid_request_metadata(renderer: dict, spec: dict[str, object]) -> bool:

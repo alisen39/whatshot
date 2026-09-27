@@ -12,7 +12,6 @@ from whats_hot_api.utils.http_client import post
 ROUTE_NAME = "suno"
 
 type_map: dict[str, str] = {
-    "trending": "主题趋势",
     "staff-picks": "编辑精选",
     "best-model": "最佳模型作品",
 }
@@ -45,8 +44,8 @@ _MAX_ITEMS = 10
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
-    type_param = request.query_params.get("type", "trending")
-    selected_type = type_param if type_param in type_map else "trending"
+    type_param = request.query_params.get("type", "staff-picks")
+    selected_type = type_param if type_param in type_map else "staff-picks"
     list_data = await _get_list(selected_type, no_cache)
     return RouterData(
         **{
@@ -125,8 +124,6 @@ def _matches_board(feed: object, board_type: str) -> bool:
     if not isinstance(feed, dict):
         return False
     title = _clean_text(feed.get("feed_title"))
-    if board_type == "trending":
-        return title.startswith("Trending:")
     if board_type == "staff-picks":
         return title == "Staff Picks"
     return bool(re.fullmatch(r"Best of v\d+(?:\.\d+)*", title))
@@ -197,7 +194,7 @@ def _clip_item(row: object) -> ListItem | None:
 
 def _duration_label(value: object) -> str:
     try:
-        seconds = int(round(float(value)))
+        seconds = round(float(value))
     except (TypeError, ValueError):
         return ""
     if seconds <= 0:

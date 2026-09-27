@@ -15,7 +15,6 @@ type_map: dict[str, str] = {
     "ent": "娱乐热榜",
     "ai": "AI热榜",
     "auto": "汽车热榜",
-    "mother": "育儿热榜",
     "fashion": "时尚热榜",
     "travel": "旅游热榜",
     "esg": "ESG热榜",
@@ -51,7 +50,11 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
 async def _get_list(type_param: str, no_cache: bool) -> dict:
     url = f"https://newsapp.sina.cn/api/hotlist?newsId=HB-1-snhs%2Ftop_news_list-{type_param}"
     result = await get(url, no_cache=no_cache)
-    items = result.data["data"]["hotList"]
+    payload = (result.data or {}).get("data") or {}
+    items = payload.get("hotList")
+    if not isinstance(items, list):
+        # Upstream returns {"status":-1,"msg":"empty data"} for retired channels.
+        raise RuntimeError(f"sina hotlist returned no hotList for type {type_param}")  # noqa: TRY004
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
