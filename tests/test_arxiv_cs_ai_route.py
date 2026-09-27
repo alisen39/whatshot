@@ -9,6 +9,14 @@ from whats_hot_api.fetch import FetchRequest, FetchService, FetchTypeNotFoundErr
 from whats_hot_api.routes.hotlist import arxiv_cs_ai
 
 
+@pytest.fixture(autouse=True)
+def _no_arxiv_spacing(monkeypatch):
+    from whats_hot_api.routes.hotlist import _arxiv_common
+
+    monkeypatch.setattr(_arxiv_common, "_MIN_SPACING_SECONDS", 0.0)
+
+
+
 def _fetch_service() -> FetchService:
     route = SimpleNamespace(
         handle_route=arxiv_cs_ai.handle_route,

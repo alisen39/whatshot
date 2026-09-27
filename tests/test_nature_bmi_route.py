@@ -46,3 +46,49 @@ async def test_nature_bmi_rejects_undeclared_type() -> None:
         await _fetch_service().fetch(
             FetchRequest(site="nature-bmi", path_type="hot")
         )
+
+
+@pytest.mark.asyncio
+async def test_feed_items_parse(monkeypatch) -> None:
+    from starlette.requests import Request
+
+    from whats_hot_api.utils.http_client import RequestResult
+
+    feed_xml = (
+        '<?xml version="1.0"?><rss version="2.0"><channel>'
+        '<item><title>Research update one</title>'
+        '<link>https://www.nature.com/articles/a1</link></item>'
+        "</channel></rss>"
+    )
+
+    async def fake_get(**kwargs):
+        return RequestResult(False, "2026-09-14T00:00:00+00:00", feed_xml)
+
+    monkeypatch.setattr(nature_bmi, "get", fake_get)
+    route_data = await nature_bmi.handle_route(
+        Request({"type": "http", "method": "GET", "path": "/nature-bmi", "headers": []}),
+        no_cache=True,
+    )
+    assert route_data.total == 1
+    assert route_data.data[0].title == "Research update one"
+
+
+@pytest.mark.asyncio
+async def test_interstitial_page_raises_instead_of_empty_success(monkeypatch) -> None:
+    from starlette.requests import Request
+
+    from whats_hot_api.utils.http_client import RequestResult
+
+    async def fake_get(**kwargs):
+        return RequestResult(
+            False,
+            "2026-09-14T00:00:00+00:00",
+            "<!doctype html><html><body><noscript>Enable JavaScript</noscript></body></html>",
+        )
+
+    monkeypatch.setattr(nature_bmi, "get", fake_get)
+    with pytest.raises(RuntimeError, match="no items"):
+        await nature_bmi.handle_route(
+            Request({"type": "http", "method": "GET", "path": "/nature-bmi", "headers": []}),
+            no_cache=True,
+        )

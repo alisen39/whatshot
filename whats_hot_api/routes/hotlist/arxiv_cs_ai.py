@@ -3,6 +3,7 @@ from __future__ import annotations
 from starlette.requests import Request
 
 from whats_hot_api.models import RouterData
+from whats_hot_api.routes.hotlist import _arxiv_common
 from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
 
@@ -36,15 +37,19 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
 
 
 async def _get_list(no_cache: bool) -> dict:
-    result = await get(
-        url=FEED_URL,
-        no_cache=no_cache,
-        response_type="text",
-        headers={
-            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
-            "Referer": SOURCE_LINK or FEED_URL,
-        },
-    )
+    async def _fetch():
+        return await get(
+            url=FEED_URL,
+            no_cache=no_cache,
+            response_type="text",
+            headers={
+                **_arxiv_common.arxiv_headers(),
+                "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
+                "Referer": SOURCE_LINK or FEED_URL,
+            },
+        )
+
+    result = await _arxiv_common.fetch_with_spacing(_fetch)
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,

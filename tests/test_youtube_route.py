@@ -183,7 +183,7 @@ def test_youtube_parser_preserves_complete_official_board(board_type: str) -> No
 
 @pytest.mark.parametrize(
     "mutation",
-    ["rank", "duplicate", "count", "request", "stale", "visibility", "ascending"],
+    ["count", "request", "stale", "ascending"],
 )
 def test_youtube_parser_rejects_incomplete_or_inconsistent_chart(mutation: str) -> None:
     payload = _chart_payload("videos-daily")
@@ -191,36 +191,85 @@ def test_youtube_parser_rejects_incomplete_or_inconsistent_chart(mutation: str) 
         "musicAnalyticsSectionRenderer"
     ]["content"]
     rows = content["videos"][0]["videoViews"]
-    if mutation == "rank":
-        rows[0]["chartEntryMetadata"]["currentPosition"] = 2
-    elif mutation == "duplicate":
-        rows[1]["id"] = rows[0]["id"]
-    elif mutation == "count":
+    if mutation == "count":
         rows.pop()
     elif mutation == "request":
         content["perspectiveMetadata"]["requestParams"]["chartParams"]["countryCode"] = "US"
     elif mutation == "stale":
         content["perspectiveMetadata"]["availableChartsInfo"][0]["latestEndDate"] = "2026-07-17"
-    elif mutation == "visibility":
-        rows[0]["isVisible"] = False
     elif mutation == "ascending":
         rows[1]["viewCount"] = "2000000"
 
     assert youtube._parse_chart(payload, "videos-daily") == []
 
 
-def test_youtube_parser_rejects_wrong_thumbnail_identity() -> None:
+@pytest.mark.parametrize(
+    "mutation",
+    ["rank", "visibility", "thumbnail"],
+)
+def test_youtube_parser_rejects_structurally_invalid_rows(mutation: str) -> None:
+    payload = _chart_payload("videos-daily")
+    content = payload["contents"]["sectionListRenderer"]["contents"][0][
+        "musicAnalyticsSectionRenderer"
+    ]["content"]
+    rows = content["videos"][0]["videoViews"]
+    total = len(rows)
+    if mutation == "rank":
+        rows[0]["chartEntryMetadata"]["currentPosition"] = 2
+    elif mutation == "visibility":
+        rows[0]["isVisible"] = False
+    elif mutation == "thumbnail":
+        rows[0]["thumbnail"]["thumbnails"] = [
+            {
+                "url": "https://i.ytimg.com/vi/wrong_id_00/hqdefault.jpg",
+                "width": 480,
+                "height": 360,
+            }
+        ]
+
+    assert total == 100
+    assert youtube._parse_chart(payload, "videos-daily") == []
+
+
+def test_youtube_parser_skips_only_evidenced_blank_title_and_duplicate() -> None:
     payload = _chart_payload("videos-daily")
     rows = payload["contents"]["sectionListRenderer"]["contents"][0][
         "musicAnalyticsSectionRenderer"
     ]["content"]["videos"][0]["videoViews"]
-    rows[0]["thumbnail"]["thumbnails"] = [
-        {
-            "url": "https://i.ytimg.com/vi/wrong_id_00/hqdefault.jpg",
-            "width": 480,
-            "height": 360,
-        }
-    ]
+    rows[0]["title"] = ""
+    rows[2]["id"] = rows[1]["id"]
+    rows[2]["thumbnail"] = rows[1]["thumbnail"]
+
+    parsed = youtube._parse_chart(payload, "videos-daily")
+    assert len(parsed) == 98
+    assert len({item.id for item in parsed}) == 98
+
+
+def test_youtube_parser_rejects_too_many_skipped_rows() -> None:
+    payload = _chart_payload("videos-daily")
+    rows = payload["contents"]["sectionListRenderer"]["contents"][0][
+        "musicAnalyticsSectionRenderer"
+    ]["content"]["videos"][0]["videoViews"]
+    for row in rows[:3]:
+        row["title"] = ""
+
+    assert youtube._parse_chart(payload, "videos-daily") == []
+
+
+def test_youtube_parser_rejects_wrong_thumbnail_identity_chart_wide() -> None:
+    payload = _chart_payload("videos-daily")
+    rows = payload["contents"]["sectionListRenderer"]["contents"][0][
+        "musicAnalyticsSectionRenderer"
+    ]["content"]["videos"][0]["videoViews"]
+    for row in rows:
+        row["thumbnail"]["thumbnails"] = [
+            {
+                "url": "https://i.ytimg.com/vi/wrong_id_00/hqdefault.jpg",
+                "width": 480,
+                "height": 360,
+            }
+        ]
+    # Wholesale identity mismatch falls below the usable-row floor.
     assert youtube._parse_chart(payload, "videos-daily") == []
 
 
@@ -242,7 +291,7 @@ def test_youtube_parser_accepts_upstream_reentry_and_blank_artist_placeholder() 
 async def test_youtube_route_bootstraps_dynamic_context_and_posts_fixed_chart(monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
 
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         calls.append(("get", kwargs))
         return RequestResult(
             data=_bootstrap_html(),
@@ -250,7 +299,7 @@ async def test_youtube_route_bootstraps_dynamic_context_and_posts_fixed_chart(mo
             update_time=datetime(2026, 7, 18, tzinfo=UTC).isoformat(),
         )
 
-    async def fake_post(**kwargs):  # noqa: ANN003
+    async def fake_post(**kwargs):
         calls.append(("post", kwargs))
         query = parse_qs(kwargs["body"]["query"])
         assert kwargs["body"]["browseId"] == "FEmusic_analytics_charts_home"
@@ -281,14 +330,14 @@ async def test_youtube_route_bootstraps_dynamic_context_and_posts_fixed_chart(mo
 
 @pytest.mark.asyncio
 async def test_youtube_route_falls_back_to_daily_videos(monkeypatch) -> None:
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         return RequestResult(
             data=_bootstrap_html(),
             from_cache=True,
             update_time=datetime(2026, 7, 18, tzinfo=UTC).isoformat(),
         )
 
-    async def fake_post(**kwargs):  # noqa: ANN003
+    async def fake_post(**kwargs):
         return RequestResult(
             data=_chart_payload("videos-daily"),
             from_cache=True,

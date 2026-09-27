@@ -5,7 +5,6 @@ from copy import deepcopy
 import pytest
 from starlette.requests import Request
 
-from whats_hot_api.models import ListItem
 from whats_hot_api.routes.hotlist import yahoo_finance
 from whats_hot_api.utils.http_client import RequestResult
 
@@ -78,7 +77,7 @@ def _market_html(
 
 @pytest.mark.asyncio
 async def test_yahoo_finance_preserves_existing_news_default(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["url"] == "https://finance.yahoo.com/news/rssindex"
         assert kwargs["no_cache"] is True
         return RequestResult(False, "2026-07-18T00:00:00+00:00", "<rss><channel><item><guid>same</guid><title>First story</title><link>https://example.com/news/first/?src=same</link></item><item><guid>same</guid><title>Second story</title><link>https://example.com/news/second/?src=same</link></item></channel></rss>")
@@ -94,7 +93,7 @@ async def test_yahoo_finance_preserves_existing_news_default(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_yahoo_finance_fetches_official_market_table(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["url"] == "https://finance.yahoo.com/markets/stocks/gainers/"
         assert kwargs["response_type"] == "text"
         assert kwargs["cache_key"] == "yahoo-finance:stocks:day-gainers:top-25"
@@ -120,7 +119,7 @@ async def test_yahoo_finance_fetches_official_market_table(monkeypatch):
 async def test_yahoo_finance_fetches_trending_equities_from_official_page(monkeypatch):
     rows = [_quote(index) for index in range(1, 26)]
 
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["url"] == "https://finance.yahoo.com/markets/stocks/trending/"
         assert kwargs["response_type"] == "text"
         return RequestResult(
@@ -141,20 +140,38 @@ async def test_yahoo_finance_fetches_trending_equities_from_official_page(monkey
     assert "52 周涨跌 +50.00%" in (result.data[0].desc or "")
 
 
-def test_yahoo_finance_market_parser_rejects_duplicate_or_wrong_link():
+def test_yahoo_finance_market_parser_skips_duplicate_or_wrong_link_rows():
     rows = [_quote(index) for index in range(1, 26)]
     duplicate = deepcopy(rows)
     duplicate[1]["symbol"] = duplicate[0]["symbol"]
-    assert yahoo_finance._parse_trending(_market_html(duplicate)) == []
+    parsed = yahoo_finance._parse_trending(_market_html(duplicate))
+    assert len(parsed) == 24
+    assert len({item.id for item in parsed}) == 24
 
     wrong_link = _market_html(rows).replace(
         'href="/quote/STK1/"', 'href="/quote/OTHER/"', 1
     )
-    assert yahoo_finance._parse_trending(wrong_link) == []
+    parsed = yahoo_finance._parse_trending(wrong_link)
+    assert len(parsed) == 24
+    assert "STK1" not in {item.id for item in parsed}
 
 
 def test_yahoo_finance_trending_rejects_wrong_page_and_short_universe():
     rows = [_quote(index) for index in range(1, 26)]
-    wrong_page = _market_html(rows, active=False)
+    wrong_page = _market_html(rows, board_type="day-gainers")
     assert yahoo_finance._parse_trending(wrong_page) == []
-    assert yahoo_finance._parse_trending(_market_html(rows[:-1])) == []
+    assert yahoo_finance._parse_trending(
+        _market_html(rows[: yahoo_finance._TRENDING_MIN_ROWS - 1])
+    ) == []
+
+
+def test_yahoo_finance_non_trending_requires_complete_top_25():
+    rows = [_quote(index) for index in range(1, 26)]
+    _, heading, tab_id = yahoo_finance._MARKET_TYPES["day-gainers"]
+
+    assert yahoo_finance._parse_market_table(
+        _market_html(rows[:10], board_type="day-gainers"),
+        "day-gainers",
+        heading,
+        tab_id,
+    ) == []

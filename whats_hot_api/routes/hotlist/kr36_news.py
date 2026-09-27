@@ -14,10 +14,16 @@ ROUTE_META: dict = {
     "title": '36Kr Latest',
     "description": 'Chinese startup and technology business headlines.',
     "link": SOURCE_LINK,
+    "params": {
+        "type": {
+            "name": "内容分类",
+            "type": {"latest": "Latest"},
+        }
+    },
 }
 
 
-async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
+async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await fetch_rsshub_feed(
         route_name=ROUTE_NAME,
         route_path=RSSHUB_ROUTE,
