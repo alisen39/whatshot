@@ -7,8 +7,16 @@ from starlette.requests import Request
 
 from whats_hot_api.catalog import RouteCatalog
 from whats_hot_api.fetch import FetchRequest, FetchService, FetchTypeNotFoundError
-from whats_hot_api.routes.hotlist import arxiv_cs_cl
+from whats_hot_api.routes.hotlist import _arxiv_common, arxiv_cs_cl
 from whats_hot_api.utils.http_client import RequestResult
+
+
+@pytest.fixture(autouse=True)
+def _no_arxiv_spacing(monkeypatch):
+    from whats_hot_api.routes.hotlist import _arxiv_common
+
+    monkeypatch.setattr(_arxiv_common, "_MIN_SPACING_SECONDS", 0.0)
+
 
 ATOM_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -90,6 +98,7 @@ async def test_arxiv_cs_cl_uses_official_atom_query(monkeypatch) -> None:
         "url": arxiv_cs_cl.FEED_URL,
         "no_cache": True,
         "response_type": "text",
+        "headers": _arxiv_common.arxiv_headers(),
     }
     assert result.total == 1
     assert result.data[0].id == "http://arxiv.org/abs/2608.27150v1"
