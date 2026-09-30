@@ -116,6 +116,7 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     # acfun (type in path, range in query)
     ("/acfun", "1", "range=DAY", "AcFun-动画-日榜"),
     ("/acfun", "155", "range=WEEK", "AcFun-生活-周榜"),
+    ("/acfun", "63", None, "AcFun-文章榜"),
     # sina
     ("/sina", "all", None, "新浪-全部"),
     ("/sina", "hotcmnt", None, "新浪-热评"),
@@ -133,6 +134,9 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/github", "daily", None, "GitHub-日榜"),
     ("/github", "weekly", None, "GitHub-周榜"),
     ("/github", "monthly", None, "GitHub-月榜"),
+    # github-trending-lang (language in path, range in query)
+    ("/github-trending-lang", "python", None, "GitHub-Python 日榜"),
+    ("/github-trending-lang", "csharp", "range=weekly", "GitHub-C# 周榜"),
     # v2ex
     ("/v2ex", "hot", None, "V2EX-最热"),
     ("/v2ex", "latest", None, "V2EX-最新"),
@@ -310,6 +314,8 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/youtube", "artists-weekly", None, "YouTube-全球周榜-音乐艺人"),
     ("/youtube", "shorts-daily", None, "YouTube-全球日榜-Shorts歌曲"),
     ("/youtube", "shorts-weekly", None, "YouTube-全球周榜-Shorts歌曲"),
+    # newshacker-zh
+    ("/newshacker-zh", "hot", None, "HN 中文精选"),
 ]
 
 
@@ -352,7 +358,7 @@ async def test_categories_endpoint(client: AsyncClient):
     # At least hotlist category should exist with routes
     hotlist = [c for c in data["categories"] if c["category"] == "hotlist"]
     assert len(hotlist) == 1
-    assert hotlist[0]["count"] == 293
+    assert hotlist[0]["count"] == 295
 
 
 @pytest.mark.asyncio
