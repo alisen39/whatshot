@@ -329,6 +329,38 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/newshacker-zh", "hot", None, "HN 中文精选"),
     ("/bbc-sport", "hot", None, "BBC Sport"),
     ("/nature-ml", "ml", None, "Nature-机器学习"),
+    # B1 补录(toutiao-category / zhihu-extra / kuaishou-index)
+    ("/toutiao-category", "sports", None, "头条-体育分类榜"),
+    ("/zhihu-extra", "hot-search", None, "知乎-热搜"),
+    ("/zhihu-extra", "new-books", None, "知乎-新书抢鲜"),
+    ("/kuaishou-index", "hot", None, "快手指数-热榜"),
+    ("/kuaishou-index", "drama-must", None, "快手指数-短剧必看榜"),
+    # B2(ximalaya / douban-charts / bilibili-rank / imdb-charts)
+    ("/ximalaya-rank", "free-hot", None, "喜马拉雅-热门免费榜"),
+    ("/ximalaya-rank", "reputation-hot", None, "喜马拉雅-热门好评榜"),
+    ("/ximalaya-album", "xueqiu", None, "喜马拉雅-雪球专辑最新节目"),
+    ("/douban-charts", "movie-weekly-best", None, "豆瓣-电影口碑周榜"),
+    ("/douban-charts", "review-best", None, "豆瓣-最受欢迎书评"),
+    ("/bilibili-rank", "all", None, "B站排行-全站"),
+    ("/bilibili-rank", "weekly", None, "B站排行-每周必看"),
+    ("/imdb-charts", "top", None, "IMDb-Top 250"),
+    ("/imdb-charts", "boxoffice", None, "IMDb-周末票房"),
+    # B3/B4(appstore + 财经监管)
+    ("/appstore-charts", "cn-iphone-free", None, "App Store-中国 iPhone 免费榜"),
+    ("/appstore-charts", "cn-podcasts", None, "App Store-国区播客 Top 100"),
+    ("/gov-cn-news", "hot", None, "中国政府网-要闻"),
+    ("/szse-rules", "hot", None, "深交所-业务规则"),
+    ("/fed-monetary", "hot", None, "美联储-货币政策"),
+    ("/eastmoney-news", "finance-ccjdd", None, "东方财富-财经导读"),
+    ("/exchange-regulator-news", "sse-latest-rules", None, "交易所监管-上交所最新规则"),
+    ("/business-tech-media", "36kr-video", None, "商业科技媒体-36氪视频榜"),
+    ("/business-tech-media", "huxiu-brief", None, "商业科技媒体-虎嗅早报"),
+    ("/invest-community-research", "xueqiu-today", None, "投研-雪球今日话题"),
+    ("/nbd-eeo", "nbd-news", None, "每经商经-每经要闻"),
+    ("/yicai-21jingji", "yicai-news-rank", None, "一财21-财经排行榜"),
+    ("/stcn-channels", "yw", None, "证券时报-要闻"),
+    ("/caixin-caijing", "caixin-home", None, "财新-首页要闻"),
+    ("/cls-depth", "headline", None, "财联社深度-头条"),
 ]
 
 
@@ -371,7 +403,7 @@ async def test_categories_endpoint(client: AsyncClient):
     # At least hotlist category should exist with routes
     hotlist = [c for c in data["categories"] if c["category"] == "hotlist"]
     assert len(hotlist) == 1
-    assert hotlist[0]["count"] == 300
+    assert hotlist[0]["count"] == 318
 
 
 @pytest.mark.asyncio
