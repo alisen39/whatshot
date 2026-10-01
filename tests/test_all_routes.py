@@ -389,6 +389,21 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/auto-media", "autohome-article", None, "汽车媒体-汽车之家文章榜"),
     ("/v2ex-feeds", "node-android", None, "V2EX-Android 节点"),
     ("/hupu-boards", "all-gambia", None, "虎扑-步行街热帖"),
+    # B6 第二批(csdn/juejin/cnblogs/gitee/github-weekly/sspai-coolapk/ithome/cn-tech/security/pro/travel/game×2)
+    ("/csdn-rank", "ai", None, "CSDN-人工智能热榜"),
+    ("/juejin-infoq", "juejin-weekly", None, "掘金-本周最热"),
+    ("/cnblogs-oschina-sf", "cnblogs-sitehome", None, "博客园-首页"),
+    ("/gitee-gitlab", "gitlab-most-stars", None, "GitLab-Most starred"),
+    ("/github-weekly-repos", "fe-weekly", None, "前端精读周刊"),
+    ("/sspai-coolapk", "sspai-latest", None, "少数派-最新文章"),
+    ("/sspai-coolapk", "coolapk-today", None, "酷安-今日热门"),
+    ("/ithome-mydrivers", "ithome-latest", None, "IT之家-最新更新"),
+    ("/cn-tech-media", "ifanr-latest", None, "爱范儿-每日最新"),
+    ("/security-communities", "52pojie-hot", None, "吾爱破解-人气热门"),
+    ("/pro-communities", "muchong-dayhot", None, "小木虫-24小时热榜"),
+    ("/travel-notes", "mafengwo-hot", None, "马蜂窝-推荐游记"),
+    ("/game-digital-forums", "s1-anime", None, "Stage1st-动漫论坛"),
+    ("/game-media", "gcores-latest", None, "机核-全站最新"),
 ]
 
 
@@ -431,7 +446,7 @@ async def test_categories_endpoint(client: AsyncClient):
     # At least hotlist category should exist with routes
     hotlist = [c for c in data["categories"] if c["category"] == "hotlist"]
     assert len(hotlist) == 1
-    assert hotlist[0]["count"] == 341
+    assert hotlist[0]["count"] == 354
 
 
 @pytest.mark.asyncio
