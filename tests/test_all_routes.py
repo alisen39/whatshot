@@ -108,6 +108,8 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/baidu", "teleplay", None, "百度-电视剧"),
     ("/baidu", "car", None, "百度-汽车"),
     ("/baidu", "game", None, "百度-游戏"),
+    ("/baidu", "livelihood", None, "百度-民生榜"),
+    ("/baidu", "finance", None, "百度-财经榜"),
     # bilibili
     ("/bilibili", "0", None, "哔哩哔哩-全站"),
     ("/bilibili", "1", None, "哔哩哔哩-动画"),
@@ -176,6 +178,7 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/stackoverflow", "hot", None, "Stack Overflow-热门问题"),
     ("/stackoverflow", "unanswered", None, "Stack Overflow-高票未解决"),
     ("/stackoverflow", "featured", None, "Stack Overflow-悬赏问题"),
+    ("/stackoverflow", "newest", None, "Stack Overflow-最新问题"),
     ("/sina-finance", "central-bank", None, "新浪财经-央行"),
     ("/ths-10jqka", "hot-stock", None, "同花顺-热股榜"),
     ("/ths-10jqka", "industry-flow-today", None, "同花顺-行业资金流 · 即时"),
@@ -265,6 +268,10 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/homebrew", "cask-30d", None, "Homebrew-Cask 30 天"),
     ("/homebrew", "cask-90d", None, "Homebrew-Cask 90 天"),
     ("/homebrew", "cask-365d", None, "Homebrew-Cask 365 天"),
+    ("/huggingface", "trending-models", None, "Hugging Face-Trending 模型"),
+    ("/huggingface", "likes-models", None, "Hugging Face-Most Likes 模型"),
+    ("/huggingface", "trending-spaces", None, "Hugging Face-Trending Spaces"),
+    ("/huggingface", "blog-zh", None, "Hugging Face-中文博客"),
     ("/huggingface-papers", "daily", None, "Hugging Face · Daily Papers-Daily Papers"),
     ("/huggingface-papers", "weekly", None, "Hugging Face · Daily Papers-Weekly 热门"),
     ("/douban-movie", "top250", None, "豆瓣电影-Top 250"),
@@ -275,6 +282,10 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/weread", "rising", None, "微信读书-飙升"),
     ("/weread", "hot_search", None, "微信读书-热搜"),
     ("/weread", "newbook", None, "微信读书-新书"),
+    ("/weread", "newrating_publish", None, "微信读书-神作榜"),
+    ("/weread", "newrating_potential_publish", None, "微信读书-神作潜力榜"),
+    ("/weread", "1900000", None, "微信读书-男生小说榜"),
+    ("/weread", "2000000", None, "微信读书-女生小说榜"),
     # genshin / honkai / starrail / miyoushe
     ("/genshin", "1", None, "原神-公告"),
     ("/genshin", "2", None, "原神-活动"),
@@ -316,6 +327,8 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/youtube", "shorts-weekly", None, "YouTube-全球周榜-Shorts歌曲"),
     # newshacker-zh
     ("/newshacker-zh", "hot", None, "HN 中文精选"),
+    ("/bbc-sport", "hot", None, "BBC Sport"),
+    ("/nature-ml", "ml", None, "Nature-机器学习"),
 ]
 
 
@@ -358,7 +371,7 @@ async def test_categories_endpoint(client: AsyncClient):
     # At least hotlist category should exist with routes
     hotlist = [c for c in data["categories"] if c["category"] == "hotlist"]
     assert len(hotlist) == 1
-    assert hotlist[0]["count"] == 295
+    assert hotlist[0]["count"] == 297
 
 
 @pytest.mark.asyncio
