@@ -371,7 +371,7 @@ async def test_categories_endpoint(client: AsyncClient):
     # At least hotlist category should exist with routes
     hotlist = [c for c in data["categories"] if c["category"] == "hotlist"]
     assert len(hotlist) == 1
-    assert hotlist[0]["count"] == 297
+    assert hotlist[0]["count"] == 300
 
 
 @pytest.mark.asyncio
