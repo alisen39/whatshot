@@ -404,6 +404,20 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/travel-notes", "mafengwo-hot", None, "马蜂窝-推荐游记"),
     ("/game-digital-forums", "s1-anime", None, "Stage1st-动漫论坛"),
     ("/game-media", "gcores-latest", None, "机核-全站最新"),
+    # B7+B8 最终批(en 媒体 + 音视频)
+    ("/iqiyi-rank", "all-hot", None, "爱奇艺-风云榜总榜"),
+    ("/en-tech-media-feeds", "ars-tech", None, "Ars Technica-科技"),
+    ("/netease-music-toplist", "soaring", None, "网易云-飙升榜"),
+    ("/qqmusic-toplist", "hot", None, "QQ音乐-热歌榜"),
+    ("/qqvideo-rank", "hotsearch", None, "腾讯视频-热搜榜"),
+    ("/maoyan-board", "praise", None, "猫眼-最受好评"),
+    ("/douban-book-extra", "review-best", None, "豆瓣读书-最受欢迎书评"),
+    ("/tech-blog-feeds", "devto-top-week", None, "技术博客-DEV 周榜"),
+    ("/en-tech-review-feeds", "cnet-latest", None, "CNET-最新评测"),
+    ("/design-community", "uisdc-latest", None, "优设-最新"),
+    ("/en-science-misc-feeds", "foxsports-top", None, "FOX Sports-头条"),
+    ("/nasa", "news", None, "NASA-News"),
+    ("/science-news", "hot", None, "Science-新闻"),
 ]
 
 
@@ -446,7 +460,7 @@ async def test_categories_endpoint(client: AsyncClient):
     # At least hotlist category should exist with routes
     hotlist = [c for c in data["categories"] if c["category"] == "hotlist"]
     assert len(hotlist) == 1
-    assert hotlist[0]["count"] == 354
+    assert hotlist[0]["count"] == 367
 
 
 @pytest.mark.asyncio
