@@ -1,0 +1,26 @@
+{
+ "data": {
+  "cards": [
+   {
+    "content": [
+     {
+      "index": 0,
+      "word": "A股三季报披露收官",
+      "title": null,
+      "query": "A股三季报披露收官",
+      "hotScore": "5212345",
+      "url": "https://www.baidu.com/s?wd=A%E8%82%A1%E4%B8%89%E5%AD%A3%E6%8A%A5%E6%8A%AB%E9%9C%B2%E6%94%B6%E5%AE%98"
+     },
+     {
+      "index": 1,
+      "word": "国际金价创阶段新高",
+      "title": null,
+      "query": "国际金价创阶段新高",
+      "hotScore": "3987654",
+      "url": "https://www.baidu.com/s?wd=%E5%9B%BD%E9%99%85%E9%87%91%E4%BB%B7%E5%88%9B%E9%98%B6%E6%AE%B5%E6%96%B0%E9%AB%98"
+     }
+    ]
+   }
+  ]
+ }
+}

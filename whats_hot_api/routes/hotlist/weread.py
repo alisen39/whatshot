@@ -15,6 +15,10 @@ type_map: dict[str, str] = {
     "newbook": "新书榜",
     "general_novel_rising": "小说榜",
     "all": "总榜",
+    "newrating_publish": "神作榜",
+    "newrating_potential_publish": "神作潜力榜",
+    "1900000": "男生小说榜",
+    "2000000": "女生小说榜",
 }
 
 ROUTE_META: dict = {
@@ -44,7 +48,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
 
 
 async def _get_list(type_param: str, no_cache: bool) -> dict:
-    url = f"https://weread.qq.com/web/bookListInCategory/{type_param}?rank=1"
+    # 网页脚本按分类决定带不带 rank=1;实测规则:非数字的榜单 id(如 newrating_publish)
+    # 必须带,数字分类 id(如 1900000)带了反而返回 0 本
+    rank_suffix = "?rank=1" if not type_param.isdigit() else ""
+    url = f"https://weread.qq.com/web/bookListInCategory/{type_param}{rank_suffix}"
     result = await get(
         url,
         headers={
