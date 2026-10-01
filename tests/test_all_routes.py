@@ -383,6 +383,12 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/shanghai-media", "shobserver-latest", None, "上观新闻-最新"),
     ("/magazine-sites", "ft-hot-weekly", None, "FT中文网-热门"),
     ("/zaobao", "realtime-china", None, "联合早报-即时中国"),
+    # B6 第一批(woshipm/dongqiudi/auto/v2ex-feeds/hupu-boards)
+    ("/woshipm", "latest", None, "人人都是产品经理-最新"),
+    ("/dongqiudi", "headline", None, "懂球帝-头条"),
+    ("/auto-media", "autohome-article", None, "汽车媒体-汽车之家文章榜"),
+    ("/v2ex-feeds", "node-android", None, "V2EX-Android 节点"),
+    ("/hupu-boards", "all-gambia", None, "虎扑-步行街热帖"),
 ]
 
 
@@ -425,7 +431,7 @@ async def test_categories_endpoint(client: AsyncClient):
     # At least hotlist category should exist with routes
     hotlist = [c for c in data["categories"] if c["category"] == "hotlist"]
     assert len(hotlist) == 1
-    assert hotlist[0]["count"] == 336
+    assert hotlist[0]["count"] == 341
 
 
 @pytest.mark.asyncio
