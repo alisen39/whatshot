@@ -1,6 +1,6 @@
 """App Store / Mac App Store 排行 + 国区播客 Top 100（board_api B3 单元迁移）。
 
-467 个子榜一个路由，`type` 区分，三个数据源（均为 Apple 公开接口或服务端渲染页面，
+466 个子榜一个路由，`type` 区分，两个数据源（均为 Apple 公开接口或服务端渲染页面，
 无签名、无 cookie、无登录；口径照 board_api appstore_charts 单元证据落实）：
 
 1. 旧版 iTunes RSS（JSON）`itunes.apple.com/{cc}/rss/{feed}/limit=100[/genre={id}]/json`
@@ -15,9 +15,8 @@
    （一次最多 200 个 id）补齐。共享 client 恒跟随跳转，国内 KS-CLOUD 节点会把 /us 302 到
    /cn，跟随后拿到的是国区页面，用 canonicalURL / ageBandId 校验拦下，不把别的地区当
    美区输出。lookup 查不到的（App 套装、刚下架）逐个取商品页补名称，最多 10 个。
-3. 新版 RSS `rss.marketingtools.apple.com/api/v2/cn/podcasts/top/100/podcasts.json`
-   —— 国区播客 Top 100。与原站页面"热门节目"逐位相同（旧版 toppodcasts 漏付费订阅节目）；
-   接口没有日期字段，timestamp 留空；该接口实测 2.7~7 秒，恒返回 100 条，空结果是结构变化。
+国区播客 Top 100 不在此路由提供:与既有 /apple-podcasts 路由请求的是同一个
+rss.marketingtools 接口(去重审计 2026-10-01),保留既有路由为唯一入口。
 
 apple.com 系（itunes / apps / rss.marketingtools）1.2 秒最多 1 个请求（board_api
 common.throttle 口径，Core 路由层退化为同模块全局限速：只对真实发出的上游请求计时，
@@ -44,7 +43,6 @@ _RSS_URL = "https://itunes.apple.com/{cc}/rss/{feed}/limit=100{genre}/json"
 _KIDS_PAGE_URL = "https://apps.apple.com/{cc}/{device}/charts/36?ageBandId=0&chart={chart}"
 _LOOKUP_URL = "https://itunes.apple.com/lookup"
 _PRODUCT_URL = "https://apps.apple.com/{cc}/{path}/id{ident}"
-_PODCASTS_URL = "https://rss.marketingtools.apple.com/api/v2/{cc}/podcasts/top/100/podcasts.json"
 
 # apple.com 系两次真实上游请求至少隔 1.2 秒（board_api common.throttle 口径）。
 RATE_LIMIT_SECONDS = 1.2
@@ -131,7 +129,7 @@ _OVERALL = {
 class _Board(NamedTuple):
     name: str  # tophub 榜名（对外展示的 type 标签）
     cc: str  # cn / us
-    source: str  # rss（旧版 iTunes RSS）、kids（网页儿童榜 + lookup）、podcasts（新版 RSS）
+    source: str  # rss（旧版 iTunes RSS）、kids（网页儿童榜 + lookup）
     url: str
     device: str = ""  # 只有 kids 用：iphone / ipad
     chart: str = ""  # 只有 kids 用：top-free / top-paid
@@ -144,11 +142,10 @@ def _rss_board(name: str, cc: str, feed: str, genre: int | None = None) -> _Boar
 
 
 def _build_boards() -> dict[str, _Board]:
-    """生成全部 467 个子榜；声明序第一个是默认榜（cn-iphone-free，与 board_api 一致）。"""
+    """生成全部 466 个子榜；声明序第一个是默认榜（cn-iphone-free，与 board_api 一致）。"""
     boards: dict[str, _Board] = {
         key: _rss_board(name, cc, feed) for key, (name, cc, feed) in _OVERALL.items()
     }
-    boards["cn-podcasts"] = _Board("中国区播客Top100", "cn", "podcasts", _PODCASTS_URL.format(cc="cn"))
     for cc, (region, _) in _REGIONS.items():
         for device, device_label in _DEVICES.items():
             for kind, kind_label in _KINDS.items():
@@ -448,39 +445,6 @@ async def _fetch_kids(board: _Board, no_cache: bool) -> tuple[list[ListItem], bo
     return items, (page.from_cache and lookup_cached), lookup_time or page.update_time, "；".join(notes) or None
 
 
-async def _fetch_podcasts(board: _Board, no_cache: bool) -> tuple[list[ListItem], bool, str, str | None]:
-    result = await _fetch_json(board.url, no_cache, cache_key=f"{ROUTE_NAME}:{board.url}")
-    payload = result.data
-    feed = payload.get("feed") if isinstance(payload, dict) else None
-    results = (feed or {}).get("results") if isinstance(feed, dict) else None
-    results = results or []
-    if not results:
-        # 该接口恒返回 Top 100；空结果说明接口改版，不得静默输出空榜
-        raise ValueError(f"App Store 播客榜 {board.url} 返回空列表，接口结构可能变了")
-    items: list[ListItem] = []
-    for row in results:
-        if not isinstance(row, dict):
-            raise ValueError(  # noqa: TRY004 - upstream shape problem, not a caller bug
-                f"App Store 播客榜 {board.url} 条目不是对象，接口结构可能变了"
-            )
-        ident, title, url = (str(row.get(key) or "").strip() for key in ("id", "name", "url"))
-        if not ident or not title or not url:
-            raise ValueError(f"App Store 播客榜 {board.url} 有条目缺 id / 名称 / 链接，接口结构可能变了")
-        genres = [str(genre.get("name") or "").strip() for genre in row.get("genres") or [] if isinstance(genre, dict)]
-        items.append(
-            ListItem(
-                id=ident,
-                title=title,
-                url=url,
-                mobileUrl=url,
-                cover=row.get("artworkUrl100"),
-                author=row.get("artistName") or None,
-                desc="、".join(genre for genre in genres if genre) or None,
-                timestamp=None,  # 新版接口没有日期字段
-            )
-        )
-    return items, result.from_cache, result.update_time, None
-
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     selected = request.query_params.get("type") or DEFAULT_TYPE
@@ -489,8 +453,6 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     board = BOARDS[selected]
     if board.source == "kids":
         data, from_cache, update_time, message = await _fetch_kids(board, no_cache)
-    elif board.source == "podcasts":
-        data, from_cache, update_time, message = await _fetch_podcasts(board, no_cache)
     else:
         data, from_cache, update_time, message = await _fetch_rss(board, no_cache)
     return RouterData(

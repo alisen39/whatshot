@@ -148,64 +148,6 @@ async def test_36kr_home_empty_is_an_error(monkeypatch):
         await route.handle_route(_request("36kr-24h"), no_cache=True)
 
 
-@pytest.mark.asyncio
-async def test_36kr_video_uses_stat_read_and_video_link(monkeypatch):
-    captured = {}
-
-    async def fake_post(url, headers=None, body=None, no_cache=None, **kwargs):
-        captured.update({"url": url, "body": body})
-        videos = [
-            {
-                "itemId": 3999593702070146,
-                "publishTime": 1790553613295,
-                "templateMaterial": {
-                    "itemId": 3999593702070146,
-                    "widgetTitle": "Muse刷屏，会成为下一个“龙虾”吗？",
-                    "widgetImage": "https://img.36krcdn.com/v.png",
-                    "statRead": 1408,
-                    "statCollect": None,
-                    "publishTime": 1790553613295,
-                },
-            }
-        ]
-        return RequestResult(False, _UPDATE_TIME, {"code": 0, "msg": None, "data": {"videoList": videos}})
-
-    monkeypatch.setattr(route, "post", fake_post)
-    result = await route.handle_route(_request("36kr-video"), no_cache=True)
-
-    assert captured["url"] == "https://gateway.36kr.com/api/mis/nav/home/nav/rank/video"
-    assert captured["body"]["partner_id"] == "wap"
-    assert captured["body"]["param"] == {"siteId": 1, "platformId": 2}
-    assert isinstance(captured["body"]["timestamp"], int)
-    item = result.data[0]
-    assert item.id == "3999593702070146"
-    assert item.url == "https://www.36kr.com/video/3999593702070146"  # 不是 /p/<id>
-    assert item.mobileUrl is None
-    assert item.hot == 1408  # 视频条目只有 statRead（whatshot 36kr 路由取 statCollect，需修）
-    assert item.timestamp == 1790553613295
-
-
-@pytest.mark.asyncio
-async def test_36kr_video_empty_list_is_periodic_empty(monkeypatch):
-    async def fake_post(url, headers=None, body=None, no_cache=None, **kwargs):
-        return RequestResult(False, _UPDATE_TIME, {"code": 0, "data": {"videoList": []}})
-
-    monkeypatch.setattr(route, "post", fake_post)
-    result = await route.handle_route(_request("36kr-video"), no_cache=True)
-    assert result.data == []
-    assert "时段性空榜" in (result.message or "")
-
-    async def fake_post_error(url, headers=None, body=None, no_cache=None, **kwargs):
-        return RequestResult(False, _UPDATE_TIME, {"code": 1, "msg": "业务参数不可以为空"})
-
-    monkeypatch.setattr(route, "post", fake_post_error)
-    with pytest.raises(RuntimeError, match="code=1"):
-        await route.handle_route(_request("36kr-video"), no_cache=True)
-
-
-# ---------------------------------------------------------------- 钛媒体
-
-
 def _tmt_fake(rows: list[dict], captured: dict):
     async def fake_get(url, headers=None, params=None, no_cache=None, **kwargs):
         captured.update({"url": url, "headers": headers, "params": params})
@@ -517,6 +459,6 @@ async def test_unknown_board_is_rejected():
 
 
 def test_type_map_declares_all_boards():
-    assert len(route._TYPE_MAP) == 18
+    assert len(route._TYPE_MAP) == 17
     assert next(iter(route._TYPE_MAP)) == "36kr-24h"  # 声明序第一个是默认榜
     assert route.ROUTE_META["params"]["type"]["type"] is route._TYPE_MAP

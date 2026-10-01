@@ -14,8 +14,6 @@
 - Office 之家热榜：office.ithome.com 侧栏用 ``$("#rank").load("//www.ithome.com/block/rank.html?d=office")``
   载入 4 个 tab，按 tab 名「Office热榜」找 ul（缺省 ``ul#d-4``）。tophub 该榜实际抓的是频道主列表
   （时间序），与榜名不符；按"内容与榜名不符时按榜名取原站列表"取原站的 Office热榜
-- 喜加一（whatshot 需修）：``www.ithome.com/zt/xijiayi`` 的 ``.newslist li``。文章 id 过百万后链接
-  变成 ``/1/xxx/xxx.htm``，whatshot 既有 ithome-xijiayi 的正则只认 ``/0/``，第 1 条就是 /1/ 链接，
   解析直接报 ValueError；本路由的 ``ithome_id()`` 两种形态都认。发布时间取内联
   ``jsDateDiff('YYYY/M/D HH:MM:SS')``（北京时间），作者取 ``.editor``（「·」前）
 - 最新更新：官方 RSS ``www.ithome.com/rss/``（首页 <link rel=alternate> 声明，60 条），
@@ -51,7 +49,6 @@ _TYPE_MAP: dict[str, str] = {
     "ithome-it": "IT之家 · IT 资讯",
     "ithome-auto": "IT之家 · 智能汽车",
     "ithome-office-hot": "IT之家 · Office 之家热榜",
-    "ithome-xijiayi": "IT之家 · 喜加一",
     "mydrivers-24h": "快科技 · 24小时最热",
     "mydrivers-week": "快科技 · 本周最热",
     "mydrivers-month": "快科技 · 本月最热",
@@ -80,7 +77,6 @@ CHANNELS = {
     "ithome-auto": "https://auto.ithome.com/",
 }
 OFFICE_RANK = "https://www.ithome.com/block/rank.html?d=office"
-XIJIAYI = "https://www.ithome.com/zt/xijiayi"
 ITHOME_RSS = "https://www.ithome.com/rss/"
 MYDRIVERS = "https://www.mydrivers.com/"
 MYDRIVERS_TABS = {
@@ -264,44 +260,6 @@ def parse_office_rank(page: str) -> list[ListItem]:
     return items
 
 
-def parse_xijiayi(page: str) -> list[ListItem]:
-    soup = BeautifulSoup(page, "lxml")
-    items: list[ListItem] = []
-    for li in soup.select(".newslist li"):
-        anchor = li.select_one(".newsbody a[href]") or li.select_one("a[href]")
-        href = str(anchor.get("href") or "") if anchor else ""
-        news_id = ithome_id(href)
-        title = _text(li.select_one(".newsbody h2"))
-        if not news_id or not title:
-            continue
-        img = li.select_one("img")
-        cover = (img.get("data-original") or img.get("src")) if img else None
-        published = None
-        # 发布时间写在内联脚本 jsDateDiff('2026/9/26 13:26:07') 里（北京时间）
-        match = re.search(r"jsDateDiff\('([^']+)'\)", str(li.select_one(".time") or ""))
-        if match:
-            try:
-                published = int(
-                    datetime.strptime(match.group(1), "%Y/%m/%d %H:%M:%S").replace(tzinfo=_CHINA_TZ).timestamp()
-                )
-            except ValueError:
-                published = None
-        editor = li.select_one(".editor")
-        author = _text(editor).split("·")[0].strip() if editor else ""
-        items.append(
-            ListItem(
-                id=news_id,
-                title=title,
-                url=href,
-                mobileUrl=ithome_m_url(news_id),
-                cover=str(cover) if cover else None,
-                desc=_text(li.select_one(".newsbody p")) or None,
-                author=author or None,
-                hot=_digits(_text(li.select_one(".comment"))),  # 「11评」评论数
-                timestamp=get_time(published),
-            )
-        )
-    return items
 
 
 async def _get_ithome_rss(no_cache: bool) -> dict:
@@ -396,10 +354,6 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     elif board == "ithome-office-hot":
         page, _, result = await _fetch_page(OFFICE_RANK, board, no_cache)
         items = parse_office_rank(page)
-        from_cache, update_time = result.from_cache, result.update_time
-    elif board == "ithome-xijiayi":
-        page, _, result = await _fetch_page(XIJIAYI, board, no_cache)
-        items = parse_xijiayi(page)
         from_cache, update_time = result.from_cache, result.update_time
     elif board == "ithome-latest":
         list_data = await _get_ithome_rss(no_cache)

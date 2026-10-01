@@ -84,23 +84,6 @@ OFFICE_HTML = """
 </ul>
 """
 
-XIJIAYI_HTML = """
-<ol class="newslist col-xs-12">
-  <li>
-    <div class="newspic"><a href="https://www.ithome.com/1/007/340.htm" title="">
-      <img class="lazy" data-original="https://img.ithome.com/newsuploadfiles/thumbnail/2026/9/1007340_240.jpg" /></a></div>
-    <div class="newsbody">
-      <a href="https://www.ithome.com/1/007/340.htm" title=""><h2>科乐美《恶魔城》系列 IP 迎 40 周年，FC 初代游戏限时免费喜加一</h2></a>
-      <p class="hidden-xs">同时全系列开启多平台特惠，部分作品低至 2 折。</p>
-      <div class="newsbottom">
-        <div class="editor">漾仔 <span class="dot">·</span>
-          <span class="time"><script>jsDateDiff('2026/9/26 13:26:07')</script></span></div>
-        <div class="comment">11评</div>
-      </div>
-    </div>
-  </li>
-</ol>
-"""
 
 MYDRIVERS_HTML = """
 <ul class="phhot_lb" id="newlist_3_2">
@@ -208,27 +191,6 @@ async def test_office_rank_selects_tab_by_name(monkeypatch):
     assert [item.id for item in result.data] == ["998998", "1000704"]  # d-4（Office热榜），不是日榜 d-1
     assert result.data[0].url == "https://www.ithome.com/0/998/998.htm"
     assert result.data[0].timestamp is None  # Office热榜只有标题和链接
-
-
-@pytest.mark.asyncio
-async def test_xijiayi_parses_million_plus_links_editor_and_jsdate(monkeypatch):
-    async def fake_get(url, headers=None, params=None, no_cache=None, **kwargs):
-        assert url == "https://www.ithome.com/zt/xijiayi"
-        return _page_result(XIJIAYI_HTML)
-
-    monkeypatch.setattr(route, "get", fake_get)
-    result = await route.handle_route(_request("ithome-xijiayi"), no_cache=True)
-
-    item = result.data[0]
-    assert item.id == "1007340"  # 需修点：/1/ 链接正确解析出 id
-    assert item.title.startswith("科乐美《恶魔城》系列 IP 迎 40 周年")
-    assert item.author == "漾仔"  # .editor「·」前
-    assert item.hot == 11  # 「11评」
-    assert item.desc == "同时全系列开启多平台特惠，部分作品低至 2 折。"
-    assert item.timestamp == int(datetime(2026, 9, 26, 13, 26, 7, tzinfo=_CHINA_TZ).timestamp()) * 1000
-
-
-# ---------------------------------------------------------------- RSS 与快科技
 
 
 @pytest.mark.asyncio

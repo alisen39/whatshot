@@ -74,12 +74,12 @@ async def test_video_rank_url_params_and_mapping(monkeypatch):
         return _ok()({"code": 0, "message": "0", "data": {"list": [dict(_VIDEO_ROW)]}})
 
     monkeypatch.setattr(bilibili_rank, "get", fake_get)
-    result = await bilibili_rank.handle_route(_request("tech"), no_cache=True)
+    result = await bilibili_rank.handle_route(_request("knowledge"), no_cache=True)
 
-    # 新版分区 ID:科技数码 rid=1012(旧版 188 已不适用);wbi 签名参数按序拼进 URL
+    # 新版分区 ID:知识 rid=1010;wbi 签名参数按序拼进 URL
     assert captured["url"].startswith(
         "https://api.bilibili.com/x/web-interface/ranking/v2?"
-        "rid=1012&type=all&web_location=333.934&wts="
+        "rid=1010&type=all&web_location=333.934&wts="
     )
     assert re.search(r"w_rid=[0-9a-f]{32}$", captured["url"])
     # Referer 必须是发起页地址,不能用首页(首页 Referer 会被判 -352)
@@ -87,7 +87,7 @@ async def test_video_rank_url_params_and_mapping(monkeypatch):
     assert "buvid3=test-buvid3" in captured["headers"]["Cookie"]
     assert "Chrome" in captured["headers"]["User-Agent"]
 
-    assert result.type == "排行榜 · 科技数码"
+    assert result.type == "排行榜 · 知识"
     assert result.total == 1
     item = result.data[0]
     assert item.id == "BV17Eaw6DEMi"
@@ -98,45 +98,6 @@ async def test_video_rank_url_params_and_mapping(monkeypatch):
     assert item.desc == "视频简介"
     assert item.cover == "https://i2.hdslb.com/bfs/archive/cover.jpg"  # http 升 https
     assert item.timestamp == 1790221927000  # 秒级 pubdate 统一为毫秒
-
-
-async def test_search_square_signs_subset_and_appends_web_location(monkeypatch):
-    _patch_bootstrap(monkeypatch)
-    signed_params: list[dict] = []
-
-    def fake_enc_wbi(params, img_key, sub_key):
-        signed_params.append(dict(params))
-        return "limit=50&platform=web&wts=1700000000&w_rid=" + "ab" * 16
-
-    monkeypatch.setattr(bilibili_rank, "_enc_wbi", fake_enc_wbi)
-    captured = {}
-
-    async def fake_get(url, headers=None, no_cache=None, cache_key=None, **kwargs):
-        captured.update({"url": url, "headers": headers})
-        return _ok()({
-            "code": 0,
-            "data": {"trending": {"list": [
-                {"keyword": "热词 一", "show_name": "热词<em>一</em>", "heat_score": 987654},
-            ]}},
-        })
-
-    monkeypatch.setattr(bilibili_rank, "get", fake_get)
-    result = await bilibili_rank.handle_route(_request("hot"), no_cache=True)
-
-    # 热搜只对 limit / platform / wts 签名;web_location 在签名后追加(与浏览器一致)
-    assert signed_params[0].keys() == {"limit", "platform"}
-    assert captured["url"] == (
-        "https://api.bilibili.com/x/web-interface/wbi/search/square?"
-        "limit=50&platform=web&wts=1700000000&w_rid=" + "ab" * 16 + "&web_location=333.337"
-    )
-    assert captured["headers"]["Referer"] == "https://search.bilibili.com/all"
-
-    item = result.data[0]
-    assert item.id == "热词 一"
-    assert item.title == "热词<em>一</em>"
-    assert item.url == "https://search.bilibili.com/all?keyword=%E7%83%AD%E8%AF%8D%20%E4%B8%80"
-    assert item.hot == 987654
-    assert item.cover is None
 
 
 async def test_bootstrap_cached_once_and_refreshed_on_352(monkeypatch):
@@ -174,7 +135,7 @@ async def test_bootstrap_cached_once_and_refreshed_on_352(monkeypatch):
         return responses[len(seen_urls) - 1]
 
     monkeypatch.setattr(bilibili_rank, "get", fake_get)
-    result = await bilibili_rank.handle_route(_request("all"), no_cache=True)
+    result = await bilibili_rank.handle_route(_request("knowledge"), no_cache=True)
 
     assert result.total == 1
     # 首次冷取 bootstrap → 缓存生效;两次 -352 各退避并换一套 buvid/密钥重试
@@ -193,28 +154,28 @@ async def test_error_shells_raise(monkeypatch):
 
     monkeypatch.setattr(bilibili_rank, "get", risk_control)
     with pytest.raises(RuntimeError, match=r"-352.*risk control"):
-        await bilibili_rank.handle_route(_request("all"), no_cache=True)
+        await bilibili_rank.handle_route(_request("knowledge"), no_cache=True)
 
     async def html_shell(url, headers=None, no_cache=None, cache_key=None, **kwargs):
         return RequestResult(False, "t", "<html>请求被拦截</html>")
 
     monkeypatch.setattr(bilibili_rank, "get", html_shell)
     with pytest.raises(RuntimeError, match="unexpected response envelope"):
-        await bilibili_rank.handle_route(_request("all"), no_cache=True)
+        await bilibili_rank.handle_route(_request("knowledge"), no_cache=True)
 
     async def business_error(url, headers=None, no_cache=None, cache_key=None, **kwargs):
         return _ok()({"code": -400, "message": "请求错误"})
 
     monkeypatch.setattr(bilibili_rank, "get", business_error)
     with pytest.raises(RuntimeError, match=r"code=-400"):
-        await bilibili_rank.handle_route(_request("all"), no_cache=True)
+        await bilibili_rank.handle_route(_request("knowledge"), no_cache=True)
 
     async def empty_success(url, headers=None, no_cache=None, cache_key=None, **kwargs):
         return _ok()({"code": 0, "data": {"list": []}})
 
     monkeypatch.setattr(bilibili_rank, "get", empty_success)
     with pytest.raises(RuntimeError, match="returned no items"):
-        await bilibili_rank.handle_route(_request("all"), no_cache=True)
+        await bilibili_rank.handle_route(_request("knowledge"), no_cache=True)
 
 
 async def test_popular_pages_dedup_and_stop_on_no_more(monkeypatch):
@@ -364,9 +325,9 @@ async def test_precious_and_article_boards(monkeypatch):
 
 
 async def test_board_registry_shape_and_unknown_type():
-    # 声明序第一个是默认榜;26 个子榜与 board_api 一致,含 Core 原先没有的 7 个榜
-    assert bilibili_rank.DEFAULT_TYPE == "all"
-    assert len(bilibili_rank.BOARD_TYPES) == 26
+    # 声明序第一个是默认榜;去重后 15 个子榜(11 个与既有路由同榜的已删),含 Core 原先没有的 7 个榜
+    assert bilibili_rank.DEFAULT_TYPE == "knowledge"
+    assert len(bilibili_rank.BOARD_TYPES) == 15
     for key in ("knowledge", "food", "car", "sports", "animal", "weekly", "precious"):
         assert key in bilibili_rank.BOARD_TYPES
 

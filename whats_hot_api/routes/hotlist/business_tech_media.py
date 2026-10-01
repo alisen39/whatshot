@@ -57,7 +57,6 @@ _TYPE_MAP: dict[str, str] = {
     "36kr-contact": "36氪 · 创投频道",
     "36kr-shenke": "36氪 · 深氪",
     "36kr-zonghe": "36氪 · 综合榜",
-    "36kr-video": "36氪 · 视频榜",
     "36kr-recommend": "36氪 · 资讯推荐",
     "tmtpost-nictation": "钛媒体 · 7X24快报",
     "tmtpost-new": "钛媒体 · 最新",
@@ -137,7 +136,6 @@ _KR_PAGES = {
     "36kr-recommend": "https://36kr.com/information/web_recommend/",
     "36kr-shenke": "https://36kr.com/motif/327685423105",
 }
-_KR_VIDEO_API = "https://gateway.36kr.com/api/mis/nav/home/nav/rank/video"
 
 
 def _initial_state(html: str, url: str) -> dict[str, Any]:
@@ -177,8 +175,6 @@ def _kr_zonghe_url() -> str:
 
 
 async def _get_36kr(board: str, no_cache: bool) -> dict:
-    if board == "36kr-video":
-        return await _get_36kr_video(no_cache)
     url = _kr_zonghe_url() if board == "36kr-zonghe" else _KR_PAGES[board]
     result = await get(
         url=url,
@@ -212,58 +208,6 @@ async def _get_36kr(board: str, no_cache: bool) -> dict:
     return _finish(result, items, message)
 
 
-async def _get_36kr_video(no_cache: bool) -> dict:
-    # 与 m 站热榜「视频榜」tab 相同的请求；timestamp 是毫秒（实测去掉结果相同，照页面带上）
-    body = {
-        "partner_id": "wap",
-        "param": {"siteId": 1, "platformId": 2},
-        "timestamp": int(time.time() * 1000),
-    }
-    result = await post(
-        url=_KR_VIDEO_API,
-        headers={
-            **_BASE_HEADERS,
-            "Content-Type": "application/json; charset=utf-8",
-            "Accept": _JSON_ACCEPT,
-        },
-        body=body,
-        no_cache=no_cache,
-        cache_key=f"{ROUTE_NAME}:36kr-video",
-    )
-    payload = result.data if isinstance(result.data, dict) else {}
-    if payload.get("code") != 0:
-        raise RuntimeError(f"36kr video API returned code={payload.get('code')} (business error)")
-    videos = (payload.get("data") or {}).get("videoList")
-    if not isinstance(videos, list):
-        raise RuntimeError(  # noqa: TRY004 - upstream shape problem, not a caller bug
-            "36kr video API response has no videoList (feed changed)"
-        )
-    items: list[ListItem] = []
-    for row in videos:
-        if not isinstance(row, dict):
-            continue
-        tm = row.get("templateMaterial") if isinstance(row.get("templateMaterial"), dict) else {}
-        video_id = str(row.get("itemId") or tm.get("itemId") or "").strip()
-        if not video_id:
-            continue
-        items.append(
-            ListItem(
-                id=video_id,
-                title=str(tm.get("widgetTitle") or "").strip(),
-                url=f"https://www.36kr.com/video/{video_id}",
-                cover=tm.get("widgetImage"),
-                hot=tm.get("statRead"),  # 视频条目只有 statRead（阅读），没有 statCollect
-                timestamp=get_time(tm.get("publishTime") or row.get("publishTime")),
-            )
-        )
-    message = None
-    if not items:
-        # 48 小时窗口内没有新视频时上游就是空列表（code=0），属时段性空榜
-        message = "36氪视频榜上游为空（48 小时内没有新视频时的时段性空榜）"
-    return _finish(result, items, message)
-
-
-# ---------------------------------------------------------------- 钛媒体
 
 _TMT_API = "https://api.tmtpost.com"
 # 取自页面脚本 dist/entry.*.js 的 headerKeys（app-version 缺了返回 406）

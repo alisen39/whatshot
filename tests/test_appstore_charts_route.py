@@ -3,7 +3,6 @@
 fixtures 依据 board_api appstore_charts 证据净化(只取结构与字段,公共目录数据):
 - 旧版 iTunes RSS:evidence/01_cn_topfreeapplications.response.body
 - 儿童网页 + lookup:evidence/kids/20_*、evidence/kids/21_*
-- 新版播客 RSS:evidence/podcasts/30_marketingtools_cn_podcasts_top100.response.body
 """
 
 from __future__ import annotations
@@ -332,51 +331,6 @@ async def test_kids_product_page_fallback_for_lookup_miss(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_podcasts_board_maps_fields(monkeypatch):
-    """新版 RSS 播客榜:feed.results 映射,分类用"、"连接,无日期字段 timestamp 留空。"""
-    captured = {}
-
-    async def fake_get(url, headers=None, **kwargs):
-        captured.update({"url": url, "headers": headers})
-        return RequestResult(False, _UPDATE_TIME, {"feed": {"results": [{
-            "id": "1582119137",
-            "name": "岩中花述",
-            "url": "https://podcasts.apple.com/cn/podcast/%E5%B2%A9%E4%B8%AD%E8%8A%B1%E8%BF%B0/id1582119137",
-            "artworkUrl100": "https://is1-ssl.mzstatic.com/pod.jpg",
-            "artistName": "GIADA",
-            "genres": [{"genreId": "1301", "name": "艺术"}, {"genreId": "1401", "name": "健康与健身"}],
-        }]}})
-
-    monkeypatch.setattr(appstore_charts, "get", fake_get)
-    result = await appstore_charts.handle_route(_request("cn-podcasts"), no_cache=True)
-
-    assert captured["url"] == (
-        "https://rss.marketingtools.apple.com/api/v2/cn/podcasts/top/100/podcasts.json"
-    )
-    assert result.type == "中国区播客Top100"
-    item = result.data[0]
-    assert item.id == "1582119137"
-    assert item.title == "岩中花述"
-    assert item.url == "https://podcasts.apple.com/cn/podcast/%E5%B2%A9%E4%B8%AD%E8%8A%B1%E8%BF%B0/id1582119137"
-    assert item.cover == "https://is1-ssl.mzstatic.com/pod.jpg"
-    assert item.author == "GIADA"
-    assert item.desc == "艺术、健康与健身"
-    assert item.timestamp is None  # 新版接口没有日期字段
-
-
-@pytest.mark.asyncio
-async def test_podcasts_empty_results_is_a_structure_error(monkeypatch):
-    """播客接口恒返回 Top 100,空结果按结构变化报错,不得静默输出空榜。"""
-
-    async def fake_get(url, headers=None, **kwargs):
-        return RequestResult(False, _UPDATE_TIME, {"feed": {"updated": "x", "results": []}})
-
-    monkeypatch.setattr(appstore_charts, "get", fake_get)
-    with pytest.raises(ValueError, match="空列表"):
-        await appstore_charts.handle_route(_request("cn-podcasts"), no_cache=True)
-
-
-@pytest.mark.asyncio
 async def test_unknown_type_is_rejected(monkeypatch):
     async def fake_get(url, headers=None, **kwargs):  # pragma: no cover - 不应被调用
         raise AssertionError("unknown type 不应发起上游请求")
@@ -387,11 +341,11 @@ async def test_unknown_type_is_rejected(monkeypatch):
 
 
 def test_board_table_shape_matches_board_api():
-    """467 个子榜与 board_api 同构:458 RSS + 8 儿童 + 1 播客;声明序第一个是默认榜。"""
+    """466 个子榜与 board_api 同构:458 RSS + 8 儿童;声明序第一个是默认榜(播客榜已并回既有 /apple-podcasts)。"""
     sources: dict[str, int] = {}
     for board in appstore_charts.BOARDS.values():
         sources[board.source] = sources.get(board.source, 0) + 1
-    assert sources == {"rss": 458, "kids": 8, "podcasts": 1}
-    assert len(appstore_charts.BOARDS) == 467
+    assert sources == {"rss": 458, "kids": 8}
+    assert len(appstore_charts.BOARDS) == 466
     assert next(iter(appstore_charts.BOARDS)) == appstore_charts.DEFAULT_TYPE == "cn-iphone-free"
     assert next(iter(appstore_charts.type_map)) == "cn-iphone-free"

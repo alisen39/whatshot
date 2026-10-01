@@ -20,20 +20,12 @@ API = "https://api.bilibili.com"
 
 # 视频分区排行:子榜 → (中文名, rid)。rid 是 2025 年后的新版分区 ID(board_api 逐个点
 # tab 实测取得,与站点头部分区配置的 tid 一致);旧版 rid(如科技 188)已不适用
+# 与既有 /bilibili 路由同分区的 10 个榜(全站/动画/音乐/游戏/娱乐/科技/鬼畜/舞蹈/时尚/影视,
+# 即旧 rid 0/1/3/4/5/188/119/129/155/181)不在此路由重复提供——同一份排行榜只保留一个入口。
 VIDEO_RANKS: dict[str, tuple[str, int]] = {
-    "all": ("全站", 0),
-    "douga": ("动画", 1005),
-    "game": ("游戏", 1008),
-    "kichiku": ("鬼畜", 1007),
-    "music": ("音乐", 1003),
-    "dance": ("舞蹈", 1004),
-    "cinephile": ("影视", 1001),
-    "ent": ("娱乐", 1002),
     "knowledge": ("知识", 1010),
-    "tech": ("科技数码", 1012),
     "food": ("美食", 1020),
     "car": ("汽车", 1013),
-    "fashion": ("时尚美妆", 1014),
     "sports": ("体育运动", 1018),
     "animal": ("动物", 1024),
 }
@@ -49,15 +41,15 @@ PGC_RANKS: dict[str, tuple[str, int]] = {
     "variety": ("综艺", 7),
 }
 
+# 热搜不在此路由提供:既有 /bilibili-hot-search 即 B 站热搜榜。
 OTHER_RANKS: dict[str, str] = {
-    "hot": "热搜",
     "popular": "综合热门",
     "weekly": "每周必看",
     "precious": "入站必刷",
     "article": "专栏热门",
 }
 
-# 声明序即榜单序,第一个是默认榜(/bilibili-rank/all)
+# 声明序即榜单序,第一个是默认榜(/bilibili-rank/knowledge)
 BOARD_TYPES: dict[str, str] = {
     **{key: f"{name}排行" for key, (name, _rid) in VIDEO_RANKS.items()},
     **{key: f"{name}排行" for key, (name, _st) in PGC_RANKS.items()},
@@ -77,7 +69,6 @@ ROUTE_META: dict = {
 # 页面埋点位置标识:排行 / 热门页 333.934,搜索页 333.337;随参数参与 WBI 签名
 # (热搜接口例外:web_location 在签名后追加,与浏览器 URL 里 w_rid/wts 夹在参数中间一致)
 WEB_LOCATION = "333.934"
-SEARCH_WEB_LOCATION = "333.337"
 
 # 综合热门取前 5 页(每页 20 条)
 POPULAR_PAGES = 5
@@ -312,36 +303,6 @@ async def _fetch_pgc_board(key: str, season_type: int, no_cache: bool) -> dict:
     }
 
 
-async def _fetch_hot_search(no_cache: bool) -> dict:
-    # 热搜只对 limit / platform / wts 签名,web_location 在签名后追加(与浏览器一致);
-    # limit 实测最大 50
-    result, payload = await _api_get(
-        "/x/web-interface/wbi/search/square",
-        {"limit": 50, "platform": "web"},
-        no_cache,
-        f"{ROUTE_NAME}:hot",
-        unsigned={"web_location": SEARCH_WEB_LOCATION},
-    )
-    rows = ((payload.get("data") or {}).get("trending") or {}).get("list") or []
-    items = []
-    for row in rows:
-        keyword = row.get("keyword") or ""
-        items.append(
-            ListItem(
-                id=keyword,
-                title=row.get("show_name") or keyword,
-                url=f"https://search.bilibili.com/all?keyword={quote(keyword)}",
-                mobileUrl=f"https://m.bilibili.com/search?keyword={quote(keyword)}",
-                hot=row.get("heat_score"),
-            )
-        )
-    return {
-        "type": "热搜",
-        "data": items,
-        "from_cache": result.from_cache,
-        "update_time": result.update_time,
-    }
-
 
 async def _fetch_popular(no_cache: bool) -> dict:
     items: list[ListItem] = []
@@ -469,7 +430,6 @@ async def _fetch_board(type_param: str, no_cache: bool) -> dict:
     if type_param in PGC_RANKS:
         return await _fetch_pgc_board(type_param, PGC_RANKS[type_param][1], no_cache)
     fetcher = {
-        "hot": _fetch_hot_search,
         "popular": _fetch_popular,
         "weekly": _fetch_weekly,
         "precious": _fetch_precious,
