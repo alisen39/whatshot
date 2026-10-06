@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import html
+import re
 import time
 from collections.abc import Awaitable, Callable
 
@@ -74,3 +76,47 @@ async def fetch_with_spacing[T](fetch: Callable[[], Awaitable[T]]) -> T:
             last_error = exc
     assert last_error is not None
     raise last_error
+
+
+# --- Announcement listing pages (/list/{category}/new) ---
+# tophub 的 arXiv 节点对应"最近一次公告"(新投稿 + 交叉投稿 + 替换版本),与 export API
+# 的"按提交时间取 2000 条"不是同一个列表,且 export API 间歇 406;公告类路由改取始终
+# 显示最近一次公告的列表页。解析结构:list-title、list-authors、p.mathjax、Total of N entries。
+_LIST_ENTRY = re.compile(r"<dt>.*?<a href ?=\"/abs/([^\"]+)\".*?</dt>\s*<dd>(.*?)</dd>", re.DOTALL)
+_LIST_TOTAL = re.compile(r"Total of (\d+) entries")
+_LIST_HEADING = re.compile(r"<h3>(Showing new listings for [^<]+)</h3>")
+
+
+def _listing_text(fragment: str) -> str:
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", fragment))).strip()
+
+
+def parse_new_listing(page: str) -> tuple[str, list[dict]]:
+    """Parse an arXiv announcement listing page into (heading, entries)."""
+    entries = []
+    for arxiv_id, dd in _LIST_ENTRY.findall(page):
+        title = re.search(r"<div class='list-title[^']*'>(.*?)</div>", dd, re.DOTALL)
+        authors = re.findall(r"<div class='list-authors'>(.*?)</div>", dd, re.DOTALL)
+        abstract = re.search(r"<p class='mathjax'>(.*?)</p>", dd, re.DOTALL)
+        names = re.findall(r"<a [^>]*>(.*?)</a>", authors[0], re.DOTALL) if authors else []
+        entries.append({
+            "id": arxiv_id,
+            "title": _listing_text(title.group(1)).removeprefix("Title:").strip() if title else "",
+            "author": _listing_text(names[0]) if names else None,  # 与既有路由一致:只取第一作者
+            "desc": _listing_text(abstract.group(1))[:500] if abstract else None,
+        })
+    heading = _LIST_HEADING.search(page)
+    return (heading.group(1) if heading else ""), entries
+
+
+def check_listing_total(page: str, parsed: int, category: str, heading: str) -> str:
+    """页面写明了本次公告总条数;解析数对不上说明结构变了或被 show=2000 截断,直接报错。"""
+    total = _LIST_TOTAL.search(page)
+    if total:
+        if int(total.group(1)) != parsed:
+            raise RuntimeError(
+                f"arXiv {category} page declares {total.group(1)} entries but {parsed} were parsed"
+            )
+        return heading
+    note = "page lacks \"Total of N entries\"; completeness not verifiable"
+    return f"{heading}; {note}" if heading else note

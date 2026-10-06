@@ -108,6 +108,8 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/baidu", "teleplay", None, "百度-电视剧"),
     ("/baidu", "car", None, "百度-汽车"),
     ("/baidu", "game", None, "百度-游戏"),
+    ("/baidu", "livelihood", None, "百度-民生榜"),
+    ("/baidu", "finance", None, "百度-财经榜"),
     # bilibili
     ("/bilibili", "0", None, "哔哩哔哩-全站"),
     ("/bilibili", "1", None, "哔哩哔哩-动画"),
@@ -116,6 +118,7 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     # acfun (type in path, range in query)
     ("/acfun", "1", "range=DAY", "AcFun-动画-日榜"),
     ("/acfun", "155", "range=WEEK", "AcFun-生活-周榜"),
+    ("/acfun", "63", None, "AcFun-文章榜"),
     # sina
     ("/sina", "all", None, "新浪-全部"),
     ("/sina", "hotcmnt", None, "新浪-热评"),
@@ -133,6 +136,9 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/github", "daily", None, "GitHub-日榜"),
     ("/github", "weekly", None, "GitHub-周榜"),
     ("/github", "monthly", None, "GitHub-月榜"),
+    # github-trending-lang (language in path, range in query)
+    ("/github-trending-lang", "python", None, "GitHub-Python 日榜"),
+    ("/github-trending-lang", "csharp", "range=weekly", "GitHub-C# 周榜"),
     # v2ex
     ("/v2ex", "hot", None, "V2EX-最热"),
     ("/v2ex", "latest", None, "V2EX-最新"),
@@ -172,6 +178,7 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/stackoverflow", "hot", None, "Stack Overflow-热门问题"),
     ("/stackoverflow", "unanswered", None, "Stack Overflow-高票未解决"),
     ("/stackoverflow", "featured", None, "Stack Overflow-悬赏问题"),
+    ("/stackoverflow", "newest", None, "Stack Overflow-最新问题"),
     ("/sina-finance", "central-bank", None, "新浪财经-央行"),
     ("/ths-10jqka", "hot-stock", None, "同花顺-热股榜"),
     ("/ths-10jqka", "industry-flow-today", None, "同花顺-行业资金流 · 即时"),
@@ -261,6 +268,10 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/homebrew", "cask-30d", None, "Homebrew-Cask 30 天"),
     ("/homebrew", "cask-90d", None, "Homebrew-Cask 90 天"),
     ("/homebrew", "cask-365d", None, "Homebrew-Cask 365 天"),
+    ("/huggingface", "trending-models", None, "Hugging Face-Trending 模型"),
+    ("/huggingface", "likes-models", None, "Hugging Face-Most Likes 模型"),
+    ("/huggingface", "trending-spaces", None, "Hugging Face-Trending Spaces"),
+    ("/huggingface", "blog-zh", None, "Hugging Face-中文博客"),
     ("/huggingface-papers", "daily", None, "Hugging Face · Daily Papers-Daily Papers"),
     ("/huggingface-papers", "weekly", None, "Hugging Face · Daily Papers-Weekly 热门"),
     ("/douban-movie", "top250", None, "豆瓣电影-Top 250"),
@@ -271,6 +282,10 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/weread", "rising", None, "微信读书-飙升"),
     ("/weread", "hot_search", None, "微信读书-热搜"),
     ("/weread", "newbook", None, "微信读书-新书"),
+    ("/weread", "newrating_publish", None, "微信读书-神作榜"),
+    ("/weread", "newrating_potential_publish", None, "微信读书-神作潜力榜"),
+    ("/weread", "1900000", None, "微信读书-男生小说榜"),
+    ("/weread", "2000000", None, "微信读书-女生小说榜"),
     # genshin / honkai / starrail / miyoushe
     ("/genshin", "1", None, "原神-公告"),
     ("/genshin", "2", None, "原神-活动"),
@@ -310,6 +325,92 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/youtube", "artists-weekly", None, "YouTube-全球周榜-音乐艺人"),
     ("/youtube", "shorts-daily", None, "YouTube-全球日榜-Shorts歌曲"),
     ("/youtube", "shorts-weekly", None, "YouTube-全球周榜-Shorts歌曲"),
+    # newshacker-zh
+    ("/newshacker-zh", "hot", None, "HN 中文精选"),
+    ("/bbc-sport", "hot", None, "BBC Sport"),
+    ("/nature-ml", "ml", None, "Nature-机器学习"),
+    # B1 补录(toutiao-category / zhihu-extra / kuaishou-index)
+    ("/toutiao-category", "sports", None, "头条-体育分类榜"),
+    ("/zhihu-extra", "hot-search", None, "知乎-热搜"),
+    ("/zhihu-extra", "new-books", None, "知乎-新书抢鲜"),
+    ("/kuaishou-index", "hot", None, "快手指数-热榜"),
+    ("/kuaishou-index", "drama-must", None, "快手指数-短剧必看榜"),
+    # B2(ximalaya / douban-charts / bilibili-rank / imdb-charts)
+    ("/ximalaya-rank", "free-hot", None, "喜马拉雅-热门免费榜"),
+    ("/ximalaya-rank", "reputation-hot", None, "喜马拉雅-热门好评榜"),
+    ("/ximalaya-album", "xueqiu", None, "喜马拉雅-雪球专辑最新节目"),
+    ("/douban-charts", "movie-weekly-best", None, "豆瓣-电影口碑周榜"),
+    ("/douban-charts", "review-best", None, "豆瓣-最受欢迎书评"),
+    ("/bilibili-rank", "weekly", None, "B站排行-每周必看"),
+    ("/imdb-charts", "top", None, "IMDb-Top 250"),
+    ("/imdb-charts", "boxoffice", None, "IMDb-周末票房"),
+    # B3/B4(appstore + 财经监管)
+    ("/appstore-charts", "cn-iphone-free", None, "App Store-中国 iPhone 免费榜"),
+    ("/szse-rules", "hot", None, "深交所-业务规则"),
+    ("/eastmoney-news", "finance-ccjdd", None, "东方财富-财经导读"),
+    ("/exchange-regulator-news", "sse-latest-rules", None, "交易所监管-上交所最新规则"),
+    ("/business-tech-media", "huxiu-brief", None, "商业科技媒体-虎嗅早报"),
+    ("/invest-community-research", "xueqiu-today", None, "投研-雪球今日话题"),
+    ("/nbd-eeo", "nbd-news", None, "每经商经-每经要闻"),
+    ("/yicai-21jingji", "yicai-news-rank", None, "一财21-财经排行榜"),
+    ("/stcn-channels", "yw", None, "证券时报-要闻"),
+    ("/caixin-caijing", "caixin-home", None, "财新-首页要闻"),
+    ("/cls-depth", "headline", None, "财联社深度-头条"),
+    # B5 第一批(新华网/新京报/央视/南周晚点/腾讯/人民)
+    ("/xinhua-channels", "politics", None, "新华网-时政"),
+    ("/bjnews-channels", "home-recommend", None, "新京报-首页推荐"),
+    ("/cctv-programs", "news-china", None, "央视-国内新闻"),
+    ("/infzm-latepost", "infzm-recommend", None, "南方周末-推荐"),
+    ("/tencent-news-channels", "ent-rank", None, "腾讯新闻-娱乐榜"),
+    ("/people-cn", "opinion-rmsp", None, "人民网-人民时评"),
+    ("/sina-channels", "news-roll", None, "新浪-全部滚动新闻"),
+    ("/sina-channels", "hotnews-comment-all", None, "新浪-评论数排行"),
+    ("/netease-news-channels", "touch-news", None, "网易-今日关注"),
+    ("/netease-news-channels", "news-latest", None, "网易-滚动新闻"),
+    # B5 第二批(thepaper/politics/banyuetan/epaper×2/chinanews/shanghai/magazine + zaobao 修复)
+    ("/thepaper-channels", "yaowen", None, "澎湃-首页要闻"),
+    ("/politics-media", "guancha-yaowen", None, "时政媒体-观察者网要闻"),
+    ("/banyuetan-channels", "top10", None, "半月谈-要闻TOP10"),
+    ("/epaper-central", "people-rmrb", None, "人民日报电子报"),
+    ("/epaper-local", "bjnews-xjb", None, "新京报电子报"),
+    ("/chinanews-channels", "hot", None, "中新网-热榜"),
+    ("/shanghai-media", "shobserver-latest", None, "上观新闻-最新"),
+    ("/magazine-sites", "ft-hot-weekly", None, "FT中文网-热门"),
+    ("/zaobao", "realtime-china", None, "联合早报-即时中国"),
+    # B6 第一批(woshipm/dongqiudi/auto/v2ex-feeds/hupu-boards)
+    ("/woshipm", "latest", None, "人人都是产品经理-最新"),
+    ("/dongqiudi", "headline", None, "懂球帝-头条"),
+    ("/auto-media", "autohome-article", None, "汽车媒体-汽车之家文章榜"),
+    ("/v2ex-feeds", "node-android", None, "V2EX-Android 节点"),
+    ("/hupu-boards", "all-gambia", None, "虎扑-步行街热帖"),
+    # B6 第二批(csdn/juejin/cnblogs/gitee/github-weekly/sspai-coolapk/ithome/cn-tech/security/pro/travel/game×2)
+    ("/csdn-rank", "ai", None, "CSDN-人工智能热榜"),
+    ("/juejin-infoq", "juejin-weekly", None, "掘金-本周最热"),
+    ("/cnblogs-oschina-sf", "cnblogs-sitehome", None, "博客园-首页"),
+    ("/gitee-gitlab", "gitlab-most-stars", None, "GitLab-Most starred"),
+    ("/github-weekly-repos", "fe-weekly", None, "前端精读周刊"),
+    ("/sspai-extra", "sspai-latest", None, "少数派-最新文章"),
+    ("/coolapk", "today", None, "酷安-今日热门"),
+    ("/ithome-mydrivers", "ithome-latest", None, "IT之家-最新更新"),
+    ("/cn-tech-media", "ifanr-latest", None, "爱范儿-每日最新"),
+    ("/security-communities", "52pojie-hot", None, "吾爱破解-人气热门"),
+    ("/pro-communities", "muchong-dayhot", None, "小木虫-24小时热榜"),
+    ("/travel-notes", "mafengwo-hot", None, "马蜂窝-推荐游记"),
+    ("/game-digital-forums", "s1-anime", None, "Stage1st-动漫论坛"),
+    ("/game-media", "gcores-latest", None, "机核-全站最新"),
+    # B7+B8 最终批(en 媒体 + 音视频)
+    ("/iqiyi-rank", "all-hot", None, "爱奇艺-风云榜总榜"),
+    ("/en-tech-media-feeds", "ars-tech", None, "Ars Technica-科技"),
+    ("/netease-music-toplist", "soaring", None, "网易云-飙升榜"),
+    ("/qqmusic-toplist", "hot", None, "QQ音乐-热歌榜"),
+    ("/qqvideo-rank", "hotsearch", None, "腾讯视频-热搜榜"),
+    ("/maoyan-board", "praise", None, "猫眼-最受好评"),
+    ("/douban-book-extra", "review-best", None, "豆瓣读书-最受欢迎书评"),
+    ("/tech-blog-feeds", "devto-top-week", None, "技术博客-DEV 周榜"),
+    ("/en-tech-review-feeds", "cnet-latest", None, "CNET-最新评测"),
+    ("/design-community", "uisdc-hot-posts", None, "优设-热文榜单"),
+    ("/en-science-misc-feeds", "foxsports-top", None, "FOX Sports-头条"),
+    ("/science-news", "hot", None, "Science-新闻"),
 ]
 
 
@@ -352,7 +453,7 @@ async def test_categories_endpoint(client: AsyncClient):
     # At least hotlist category should exist with routes
     hotlist = [c for c in data["categories"] if c["category"] == "hotlist"]
     assert len(hotlist) == 1
-    assert hotlist[0]["count"] == 293
+    assert hotlist[0]["count"] == 362
 
 
 @pytest.mark.asyncio

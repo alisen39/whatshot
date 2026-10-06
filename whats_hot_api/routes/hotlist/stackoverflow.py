@@ -14,6 +14,7 @@ type_map: dict[str, str] = {
     "hot": "热门问题",
     "unanswered": "高票未解决",
     "featured": "悬赏问题",
+    "newest": "最新问题",
 }
 
 ROUTE_META: dict = {
@@ -51,36 +52,51 @@ async def _get_list(board_type: str, no_cache: bool) -> dict:
         "hot": "",
         "unanswered": "/unanswered",
         "featured": "/featured",
+        "newest": "",
     }[board_type]
-    sort = {"hot": "hot", "unanswered": "votes", "featured": "activity"}[
+    sort = {"hot": "hot", "unanswered": "votes", "featured": "activity", "newest": "activity"}[
         board_type
     ]
+    # newest 对齐 stackoverflow.com/feeds("most recent 30"):30 条、按提问时间倒序重排;
+    # activity 排序与 feed 同一列表(creation 只重合 5/30)
+    pagesize = "30" if board_type == "newest" else "50"
     url = f"{_API_BASE}{path}"
     params = {
         "order": "desc",
         "sort": sort,
         "site": "stackoverflow",
-        "pagesize": "50",
+        "pagesize": pagesize,
     }
     result = await get(
         url=url,
         no_cache=no_cache,
         response_type="json",
         params=params,
-        cache_key=f"{url}?order=desc&sort={sort}&site=stackoverflow&pagesize=50",
+        cache_key=f"{url}?order=desc&sort={sort}&site=stackoverflow&pagesize={pagesize}",
         headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"},
     )
     data = [_question_item(row, board_type) for row in (result.data or {}).get("items", [])]
+    items = [item for item in data if item is not None]
+    if board_type == "newest":
+        items.sort(key=lambda item: item.timestamp or 0, reverse=True)
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
-        "data": [item for item in data if item is not None],
+        "data": items,
     }
 
 
 def _question_item(row: dict, board_type: str) -> ListItem | None:
     question_id = str(row.get("question_id") or "").strip()
     title = unescape(str(row.get("title") or "")).strip()
+    if board_type == "newest":
+        # 与 feed/tophub 的标题格式一致(按 closed_reason,迁移问题带 migrated_to)
+        if row.get("migrated_to"):
+            title = f"{title} [migrated]"
+        elif row.get("closed_reason") == "duplicate":
+            title = f"{title} [duplicate]"
+        elif row.get("closed_reason"):
+            title = f"{title} [closed]"
     url = str(row.get("link") or "").strip()
     if not question_id or not title or not url:
         return None

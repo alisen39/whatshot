@@ -70,6 +70,9 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
     )
     key = _list_type_key.get(type_param, "hotRankList")
     items = result.data["data"][key]
+    # 视频条目没有 statCollect,hot 取 statRead;链接是 /video/<id>(board_api 实测,文章榜不变)
+    hot_field = "statRead" if type_param == "video" else "statCollect"
+    path = "video" if type_param == "video" else "p"
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
@@ -81,9 +84,9 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
                 author=v["templateMaterial"].get("authorName"),
                 desc=v["templateMaterial"].get("summary") or None,
                 timestamp=get_time(v.get("publishTime")),
-                hot=v["templateMaterial"].get("statCollect") or None,
-                url=f"https://www.36kr.com/p/{v['itemId']}",
-                mobileUrl=f"https://m.36kr.com/p/{v['itemId']}",
+                hot=v["templateMaterial"].get(hot_field) or None,
+                url=f"https://www.36kr.com/{path}/{v['itemId']}",
+                mobileUrl=f"https://m.36kr.com/{path}/{v['itemId']}",
             )
             for v in items
         ],

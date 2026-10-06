@@ -1,118 +1,93 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 from starlette.requests import Request
 
-from whats_hot_api.catalog import RouteCatalog
-from whats_hot_api.fetch import FetchRequest, FetchService, FetchTypeNotFoundError
 from whats_hot_api.routes.hotlist import _arxiv_common, arxiv_cs_cv
 from whats_hot_api.utils.http_client import RequestResult
 
 
 @pytest.fixture(autouse=True)
 def _no_arxiv_spacing(monkeypatch):
-    from whats_hot_api.routes.hotlist import _arxiv_common
-
     monkeypatch.setattr(_arxiv_common, "_MIN_SPACING_SECONDS", 0.0)
 
 
-ATOM_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <entry>
-    <id>http://arxiv.org/abs/2608.27150v1</id>
-    <updated>2026-08-29T10:30:00Z</updated>
-    <published>2026-08-29T10:30:00Z</published>
-    <title>Newest neural computing paper</title>
-    <summary>A compact abstract.</summary>
-    <author><name>Ada Researcher</name></author>
-    <link href="https://arxiv.org/abs/2608.27150v1" rel="alternate" type="text/html" />
-  </entry>
-</feed>
+LISTING_SAMPLE = """
+<html><body>
+<h3>Showing new listings for Friday, 25 September 2026</h3>
+<dl>
+<dt>[<a href="/abs/2609.12345v1">1</a>]</dt>
+<dd>
+<div class='list-title mathjax'>Title: A Study of Titles</div>
+<div class='list-authors'>(<a href="/a/1">Alice Chen</a>, <a href="/a/2">Bob Liu</a>)</div>
+<p class='mathjax'>Abstract: We study things.</p>
+</dd>
+<dt>[<a href="/abs/2609.67890v2">2</a>]</dt>
+<dd>
+<div class='list-title mathjax'>Title: Cross-listed Paper</div>
+<div class='list-authors'>(<a href="/a/3">Carol Wang</a>)</div>
+<p class='mathjax'>Abstract: More things.</p>
+</dd>
+</dl>
+Total of 2 entries
+</body></html>
 """
 
 
-def _fetch_service() -> FetchService:
-    route = SimpleNamespace(
-        handle_route=arxiv_cs_cv.handle_route,
-        category="hotlist",
-        category_label="热榜",
-        metadata=arxiv_cs_cv.ROUTE_META,
-        validate_type=True,
-    )
-    return FetchService(RouteCatalog({arxiv_cs_cv.ROUTE_NAME: route}))
-
-
-async def test_arxiv_cs_cv_type_reaches_route_feed(monkeypatch) -> None:
-    observed: dict[str, object] = {}
-
-    async def fake_get_list(no_cache: bool) -> dict:
-        observed["no_cache"] = no_cache
-        return {
-            "from_cache": False,
-            "update_time": "2026-08-27T00:00:00+00:00",
-            "data": [],
-        }
-
-    monkeypatch.setattr(arxiv_cs_cv, "_get_list", fake_get_list)
-
-    result = await _fetch_service().fetch(
-        FetchRequest(site="arxiv-cs-cv", path_type="cs-cv")
-    )
-
-    assert observed == {"no_cache": False}
-    assert result.data.name == "arxiv-cs-cv"
-
-
-async def test_arxiv_cs_cv_rejects_undeclared_type() -> None:
-    with pytest.raises(FetchTypeNotFoundError, match="Unknown type 'hot'"):
-        await _fetch_service().fetch(
-            FetchRequest(site="arxiv-cs-cv", path_type="hot")
-        )
-
-
 def _request() -> Request:
-    return Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/arxiv-cs-cv",
-            "query_string": b"type=cs-cv",
-            "headers": [],
-        }
-    )
+    return Request({
+        "type": "http",
+        "method": "GET",
+        "path": "/arxiv-cs-cv",
+        "query_string": b"type=cs-cv",
+        "headers": [],
+    })
 
 
-async def test_arxiv_cs_cv_uses_official_atom_query(monkeypatch) -> None:
-    captured: dict[str, object] = {}
+@pytest.mark.asyncio
+async def test_announcement_listing_is_parsed(monkeypatch):
+    captured = {}
 
     async def fake_get(**kwargs):
         captured.update(kwargs)
-        return RequestResult(False, "2026-08-29T18:20:00+00:00", ATOM_SAMPLE)
+        return RequestResult(False, "2026-10-01T00:00:00+00:00", LISTING_SAMPLE)
 
     monkeypatch.setattr(arxiv_cs_cv, "get", fake_get)
     result = await arxiv_cs_cv.handle_route(_request(), no_cache=True)
 
-    assert captured == {
-        "url": arxiv_cs_cv.FEED_URL,
-        "no_cache": True,
-        "response_type": "text",
-        "headers": _arxiv_common.arxiv_headers(),
-    }
-    assert result.total == 1
-    assert result.data[0].id == "http://arxiv.org/abs/2608.27150v1"
-    assert result.data[0].author == "Ada Researcher"
-    assert result.data[0].desc == "A compact abstract."
-    assert result.data[0].timestamp == 1787999400000
-    assert result.data[0].url == "https://arxiv.org/abs/2608.27150v1"
+    assert captured["url"] == "https://arxiv.org/list/cs.CV/new"
+    assert captured["params"] == {"skip": 0, "show": 2000}
+    assert captured["response_type"] == "text"
+    assert captured["no_cache"] is True
+    assert captured["headers"]["User-Agent"].startswith("whats-hot-api/")
+    assert result.name == "arxiv-cs-cv"
+    assert result.type == "最新公告 · cs.CV"
+    assert result.total == 2
+    assert result.message == "Showing new listings for Friday, 25 September 2026"
+    first = result.data[0]
+    assert first.id == "2609.12345v1"
+    assert first.title == "A Study of Titles"
+    assert first.author == "Alice Chen"  # 只取第一作者,与既有路由一致
+    assert first.desc == "Abstract: We study things."
+    assert first.url == "https://arxiv.org/abs/2609.12345v1"
+    assert first.timestamp is None  # 列表页不提供单篇时间
 
 
-async def test_arxiv_cs_cv_rejects_empty_feed(monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_entry_total_mismatch_is_an_error(monkeypatch):
     async def fake_get(**kwargs):
-        return RequestResult(False, "2026-08-29T18:20:00+00:00", "<feed />")
+        return RequestResult(False, "t", LISTING_SAMPLE.replace("Total of 2 entries", "Total of 3 entries"))
 
     monkeypatch.setattr(arxiv_cs_cv, "get", fake_get)
+    with pytest.raises(RuntimeError, match="declares 3 entries but 2 were parsed"):
+        await arxiv_cs_cv.handle_route(_request(), no_cache=True)
 
-    with pytest.raises(RuntimeError, match="non-empty Atom feed"):
+
+@pytest.mark.asyncio
+async def test_empty_listing_is_an_error(monkeypatch):
+    async def fake_get(**kwargs):
+        return RequestResult(False, "t", "<html><body><h3>Showing new listings for Friday, 25 September 2026</h3></body></html>")
+
+    monkeypatch.setattr(arxiv_cs_cv, "get", fake_get)
+    with pytest.raises(RuntimeError, match="did not contain any entries"):
         await arxiv_cs_cv.handle_route(_request(), no_cache=True)

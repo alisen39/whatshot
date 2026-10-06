@@ -18,6 +18,8 @@ type_map: dict[str, str] = {
     "teleplay": "电视剧",
     "car": "汽车",
     "game": "游戏",
+    "livelihood": "民生榜",
+    "finance": "财经榜",
 }
 
 ROUTE_META: dict = {

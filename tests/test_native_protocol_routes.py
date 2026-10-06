@@ -101,8 +101,8 @@ NATIVE_PROTOCOL_ROUTES = [('indiehackers', 'indiehackers', 'rss'),
  ('servicenow_ai', 'servicenow-ai', 'rss'),
  ('deeplearning_the_batch', 'deeplearning-the-batch', 'rsshub'),
  ('arxiv_cs_ai', 'arxiv-cs-ai', 'rss'),
- ('arxiv_cs_lg', 'arxiv-cs-lg', 'rss'),
- ('arxiv_cs_cl', 'arxiv-cs-cl', 'rss'),
+    ('arxiv_cs_lg', 'arxiv-cs-lg', 'arxiv-listing'),
+    ('arxiv_cs_cl', 'arxiv-cs-cl', 'arxiv-listing'),
  ('bair_blog', 'bair-blog', 'rss'),
  ('the_gradient', 'the-gradient', 'rss'),
  ('the_decoder', 'the-decoder', 'rss'),
@@ -124,7 +124,7 @@ NATIVE_PROTOCOL_ROUTES = [('indiehackers', 'indiehackers', 'rss'),
  ('robotics_tomorrow', 'robotics-tomorrow', 'rss'),
  ('bdtechtalks', 'bdtechtalks', 'rss'),
  ('synced_review', 'synced-review', 'rss'),
- ('arxiv_cs_cv', 'arxiv-cs-cv', 'rss'),
+    ('arxiv_cs_cv', 'arxiv-cs-cv', 'arxiv-listing'),
  ('arxiv_eess_sy', 'arxiv-eess-sy', 'rss'),
  ('ros_discourse', 'ros-discourse', 'rss'),
  ('planet_ros', 'planet-ros', 'rss'),
@@ -155,6 +155,20 @@ NATIVE_PROTOCOL_ROUTES = [('indiehackers', 'indiehackers', 'rss'),
  ('ruanyifeng_weekly', 'ruanyifeng-weekly', 'rss')]
 RSS_SAMPLE = """<?xml version="1.0"?><rss><channel><item><guid>sample</guid><title>Sample</title><link>https://example.com/sample</link></item></channel></rss>"""
 
+# arxiv-listing 提供者:路由取 /list/{category}/new 公告页而非 RSS
+LISTING_SAMPLE = """
+<h3>Showing new listings for Friday, 25 September 2026</h3>
+<dl>
+<dt>[<a href="/abs/2609.12345v1">1</a>]</dt>
+<dd>
+<div class='list-title mathjax'>Title: Sample Paper</div>
+<div class='list-authors'>(<a href="/a/1">Alice Chen</a>)</div>
+<p class='mathjax'>Abstract: We study things.</p>
+</dd>
+</dl>
+Total of 1 entries
+"""
+
 
 def _request() -> Request:
     return Request({
@@ -182,6 +196,14 @@ async def test_native_protocol_route_owns_metadata_and_fetch(monkeypatch, module
             return RequestResult(False, "2026-07-30T00:00:00+00:00", RSS_SAMPLE)
 
         monkeypatch.setattr(module, "get", fake_get)
+    elif provider == "arxiv-listing":
+        captured = {}
+
+        async def fake_get(**kwargs):
+            captured.update(kwargs)
+            return RequestResult(False, "2026-07-30T00:00:00+00:00", LISTING_SAMPLE)
+
+        monkeypatch.setattr(module, "get", fake_get)
     else:
         captured = {}
 
@@ -203,6 +225,11 @@ async def test_native_protocol_route_owns_metadata_and_fetch(monkeypatch, module
     assert result.updateTime == "2026-07-30T00:00:00+00:00"
     if provider == "rss":
         assert captured["url"] == module.FEED_URL
+        assert captured["no_cache"] is True
+        assert captured["response_type"] == "text"
+    elif provider == "arxiv-listing":
+        assert captured["url"] == f"https://arxiv.org/list/{module.CATEGORY}/new"
+        assert captured["params"] == {"skip": 0, "show": 2000}
         assert captured["no_cache"] is True
         assert captured["response_type"] == "text"
     else:

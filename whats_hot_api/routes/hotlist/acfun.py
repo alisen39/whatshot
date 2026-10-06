@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from starlette.requests import Request
 
 from whats_hot_api.models import ListItem, RouterData
@@ -21,6 +23,7 @@ type_map: dict[str, str] = {
     "68": "影视",
     "69": "体育",
     "125": "鱼塘",
+    "63": "文章",
 }
 
 range_map: dict[str, str] = {
@@ -46,6 +49,14 @@ ROUTE_META: dict = {
     "link": "https://www.acfun.cn/rank/list/",
 }
 
+# AcFun CDN 的 UA 黑名单会 403 掉 httpx 缺省 UA("denied by UA ACL = blacklist"),
+# 浏览器 UA 直接过,不带 cookie、不需要 Referer
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+}
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     type_param = request.query_params.get("type", "-1")
@@ -67,6 +78,7 @@ async def _get_list(type_param: str, range_param: str, no_cache: bool) -> dict:
     result = await get(
         url,
         headers={
+            **_HEADERS,
             "Referer": f"https://www.acfun.cn/rank/list/?cid=-1&pcid={type_param}&range={range_param}",
         },
         no_cache=no_cache,
@@ -75,18 +87,25 @@ async def _get_list(type_param: str, range_param: str, no_cache: bool) -> dict:
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
-        "data": [
-            ListItem(
-                id=v["dougaId"],
-                title=v["contentTitle"],
-                desc=v.get("contentDesc"),
-                cover=v.get("coverUrl"),
-                author=v.get("userName"),
-                timestamp=get_time(v.get("contributeTime")),
-                hot=v.get("likeCount"),
-                url=f"https://www.acfun.cn/v/ac{v['dougaId']}",
-                mobileUrl=f"https://m.acfun.cn/v/?ac={v['dougaId']}",
-            )
-            for v in items
-        ],
+        "data": [_build_item(v) for v in items],
     }
+
+
+def _build_item(v: dict) -> ListItem:
+    # 文章条目没有 dougaId/likeCount,用 contentId 拼 /a/ac 链接、viewCount 作热度(页面卡片显示的阅读数)
+    is_article = not v.get("dougaId")
+    ac_id = v.get("contentId") if is_article else v["dougaId"]
+    desc = v.get("contentDesc")
+    if is_article and desc:
+        desc = _TAG_RE.sub("", desc).strip()
+    return ListItem(
+        id=ac_id,
+        title=v["contentTitle"],
+        desc=desc,
+        cover=v.get("coverUrl"),
+        author=v.get("userName"),
+        timestamp=get_time(v.get("contributeTime")),
+        hot=v.get("viewCount") if is_article else v.get("likeCount"),
+        url=f"https://www.acfun.cn/{'a' if is_article else 'v'}/ac{ac_id}",
+        mobileUrl=v.get("shareUrl") or f"https://m.acfun.cn/v/?ac={ac_id}",
+    )
