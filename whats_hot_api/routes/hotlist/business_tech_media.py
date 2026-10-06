@@ -1,16 +1,6 @@
-"""商业科技媒体：36氪、钛媒体、华尔街见闻、财富中文网、虎嗅（多站点，type=站点-栏目）。
+"""商业科技媒体：钛媒体、华尔街见闻、财富中文网、虎嗅（多站点，type=站点-栏目）。
 
-迁移自 board_api business_tech_media 单元（18 个已完成榜），每个子榜 1 个请求：
-- 36氪：页面服务端渲染时写进 ``window.initialState`` 的 JSON（页面首屏按它渲染，逐条相同）
-  - 24小时热榜：首页 ``homeData.data.hotlist.data``；AI/创投/资讯推荐：频道页
-    ``information.informationList.itemList``；深氪：专栏页 ``motifDetailData…itemList``；
-    综合榜：``/hot-list/zonghe/<北京日期>/1`` 的 ``hotListDetail.articleList.itemList``。
-    综合榜不带日期是 404，目录页"查看完整榜单"链到当天日期；刚过零点原站可能还没生成
-    当天的榜，此时为时段性空榜，输出 0 条 + message，不算失败
-  - 视频榜：m 站热榜接口 ``POST gateway.36kr.com/api/mis/nav/home/nav/rank/video``。
-    48 小时窗口内没有新视频时上游返回 ``code=0, videoList=[]``，同为时段性空榜。
-    注意 whatshot 既有 36kr 路由的 video 榜 ``hot`` 取 ``statCollect``（视频条目没有）、
-    链接拼成文章页 ``/p/<id>``，均为需修点；本路由按证据取 ``statRead`` 与 ``/video/<id>``
+迁移自 board_api business_tech_media 单元（18 个已完成榜；36氪 6 榜已因上游不可达下线），每个子榜 1 个请求：
 - 钛媒体：api.tmtpost.com。请求头必须带 ``app-version``（缺了 406 miss app_version header）；
   页面脚本还给每个请求加 ``Authorization = "13:<毫秒时间戳>|44:<md5(base64(lower(pc+web1.0+t)))><12位随机串>"``
   （两端带双引号），照页面算法生成；实测服务端当前不校验它（board_api param_matrix）。
@@ -32,7 +22,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import random
 import re
 import string
@@ -52,12 +41,6 @@ from whats_hot_api.utils.http_client import get, post
 ROUTE_NAME = "business-tech-media"
 
 _TYPE_MAP: dict[str, str] = {
-    "36kr-24h": "36氪 · 24小时热榜",
-    "36kr-ai": "36氪 · AI频道",
-    "36kr-contact": "36氪 · 创投频道",
-    "36kr-shenke": "36氪 · 深氪",
-    "36kr-zonghe": "36氪 · 综合榜",
-    "36kr-recommend": "36氪 · 资讯推荐",
     "tmtpost-nictation": "钛媒体 · 7X24快报",
     "tmtpost-new": "钛媒体 · 最新",
     "tmtpost-hot": "钛媒体 · 热门文章榜单",
@@ -71,13 +54,13 @@ _TYPE_MAP: dict[str, str] = {
     "huxiu-finance": "虎嗅 · 金融财经",
 }
 
-_DEFAULT_TYPE = "36kr-24h"
+_DEFAULT_TYPE = "tmtpost-nictation"
 
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "商业科技媒体",
-    "description": "36氪、钛媒体、华尔街见闻、财富中文网、虎嗅的热榜与栏目列表。",
-    "link": "https://36kr.com/",
+    "description": "钛媒体、华尔街见闻、财富中文网、虎嗅的热榜与栏目列表。",
+    "link": "https://www.tmtpost.com/",
     "params": {"type": {"name": "站点-栏目", "type": _TYPE_MAP}},
 }
 
@@ -98,7 +81,6 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         raise ValueError(f"Unknown board '{board}' for route '{ROUTE_NAME}'")
     site = board.split("-", 1)[0]
     fetchers = {
-        "36kr": _get_36kr,
         "tmtpost": _get_tmtpost,
         "wallstreetcn": _get_wallstreetcn,
         "fortunechina": _get_fortunechina,
@@ -125,88 +107,6 @@ def _finish(result: Any, items: list[ListItem], message: str | None = None) -> d
         "data": items,
         "message": message,
     }
-
-
-# ---------------------------------------------------------------- 36氪
-
-_KR_PAGES = {
-    "36kr-24h": "https://36kr.com/",
-    "36kr-ai": "https://36kr.com/information/AI/",
-    "36kr-contact": "https://36kr.com/information/contact/",
-    "36kr-recommend": "https://36kr.com/information/web_recommend/",
-    "36kr-shenke": "https://36kr.com/motif/327685423105",
-}
-
-
-def _initial_state(html: str, url: str) -> dict[str, Any]:
-    if "安全检测" in html[:20000] and "window.initialState" not in html:
-        # 36kr SSR 页面在火山引擎风控下会返回"正在进行安全检测"挑战壳（200 + 17KB，
-        # 2026-10-01 实测对 curl/httpx 都如此）；严格拒绝，不降级为空榜，也不绕过
-        raise RuntimeError(f"36kr page {url} returned a volcano-engine security-check shell (challenge), not SSR data")
-    match = re.search(r"window\.initialState\s*=\s*(\{.*?\})\s*</script>", html, re.DOTALL)
-    if not match:
-        raise RuntimeError(f"36kr page {url} has no window.initialState (page changed)")
-    return json.loads(match.group(1))
-
-
-def _kr_item(row: dict[str, Any], hot_key: str | None = None) -> ListItem | None:
-    # 首页/频道页条目的字段在 templateMaterial 里；综合榜条目是扁平的
-    material = row.get("templateMaterial")
-    tm: dict[str, Any] = material if isinstance(material, dict) else row
-    item_id = str(row.get("itemId") or tm.get("itemId") or "").strip()
-    if not item_id:
-        return None
-    return ListItem(
-        id=item_id,
-        title=str(tm.get("widgetTitle") or "").strip(),
-        url=f"https://www.36kr.com/p/{item_id}",
-        mobileUrl=f"https://m.36kr.com/p/{item_id}",
-        cover=tm.get("widgetImage"),
-        author=tm.get("authorName") or tm.get("author"),
-        desc=tm.get("summary") or tm.get("content"),
-        hot=tm.get(hot_key) if hot_key else None,
-        timestamp=get_time(tm.get("publishTime") or row.get("publishTime")),
-    )
-
-
-def _kr_zonghe_url() -> str:
-    # 热榜目录页"查看完整榜单"链到当天的 /hot-list/zonghe/<北京日期>/1；不带日期是 404
-    return f"https://36kr.com/hot-list/zonghe/{datetime.now(_CHINA_TZ):%Y-%m-%d}/1"
-
-
-async def _get_36kr(board: str, no_cache: bool) -> dict:
-    url = _kr_zonghe_url() if board == "36kr-zonghe" else _KR_PAGES[board]
-    result = await get(
-        url=url,
-        headers={**_BASE_HEADERS, "Accept": _HTML_ACCEPT},
-        no_cache=no_cache,
-        response_type="text",
-        cache_key=f"{ROUTE_NAME}:{board}",
-    )
-    state = _initial_state(str(result.data), url)
-    if board == "36kr-24h":
-        rows = ((state.get("homeData") or {}).get("data") or {}).get("hotlist", {}).get("data")
-    elif board == "36kr-shenke":
-        rows = (
-            (((state.get("motifDetailData") or {}).get("data") or {}).get("motifArticleList") or {}).get("data")
-            or {}
-        ).get("itemList")
-    elif board == "36kr-zonghe":
-        rows = ((state.get("hotListDetail") or {}).get("articleList") or {}).get("itemList")
-    else:
-        rows = ((state.get("information") or {}).get("informationList") or {}).get("itemList")
-    if not isinstance(rows, list):
-        raise RuntimeError(  # noqa: TRY004 - upstream shape problem, not a caller bug
-            f"36kr page {url} initialState has no list (page changed)"
-        )
-    # 综合榜页面每条显示"N收藏"（statCollect）；其余页面不显示数值
-    hot_key = "statCollect" if board == "36kr-zonghe" else None
-    items = [item for row in rows if isinstance(row, dict) and (item := _kr_item(row, hot_key=hot_key))]
-    message = None
-    if board == "36kr-zonghe" and not items:
-        message = "36氪当天的综合榜为空（刚过零点时原站可能还没生成当天的榜）"
-    return _finish(result, items, message)
-
 
 
 _TMT_API = "https://api.tmtpost.com"

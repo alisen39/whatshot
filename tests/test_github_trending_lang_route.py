@@ -176,3 +176,10 @@ async def test_silent_daily_fallback_is_an_error(monkeypatch, _no_cache, _no_sle
     monkeypatch.setattr(github_trending_lang, "get", fake_get)
     with pytest.raises(RuntimeError, match="since=weekly"):
         await github_trending_lang.handle_route(_request("python", "weekly"), no_cache=True)
+
+
+def test_removed_languages_are_gone():
+    boards = github_trending_lang.ROUTE_META["params"]["type"]["type"]
+    assert {"codeql", "smarty"}.isdisjoint(boards)
+    assert list(boards) == list(github_trending_lang.LANGUAGES)
+    assert next(iter(boards)) == "python"

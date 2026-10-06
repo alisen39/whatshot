@@ -346,9 +346,7 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/imdb-charts", "boxoffice", None, "IMDb-周末票房"),
     # B3/B4(appstore + 财经监管)
     ("/appstore-charts", "cn-iphone-free", None, "App Store-中国 iPhone 免费榜"),
-    ("/gov-cn-news", "hot", None, "中国政府网-要闻"),
     ("/szse-rules", "hot", None, "深交所-业务规则"),
-    ("/fed-monetary", "hot", None, "美联储-货币政策"),
     ("/eastmoney-news", "finance-ccjdd", None, "东方财富-财经导读"),
     ("/exchange-regulator-news", "sse-latest-rules", None, "交易所监管-上交所最新规则"),
     ("/business-tech-media", "huxiu-brief", None, "商业科技媒体-虎嗅早报"),
@@ -358,14 +356,13 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/stcn-channels", "yw", None, "证券时报-要闻"),
     ("/caixin-caijing", "caixin-home", None, "财新-首页要闻"),
     ("/cls-depth", "headline", None, "财联社深度-头条"),
-    # B5 第一批(新华网/新京报/央视/南周晚点/腾讯/人民/港府)
+    # B5 第一批(新华网/新京报/央视/南周晚点/腾讯/人民)
     ("/xinhua-channels", "politics", None, "新华网-时政"),
     ("/bjnews-channels", "home-recommend", None, "新京报-首页推荐"),
     ("/cctv-programs", "news-china", None, "央视-国内新闻"),
     ("/infzm-latepost", "infzm-recommend", None, "南方周末-推荐"),
     ("/tencent-news-channels", "ent-rank", None, "腾讯新闻-娱乐榜"),
     ("/people-cn", "opinion-rmsp", None, "人民网-人民时评"),
-    ("/hk-gov-news", "topstories", None, "港府新闻网-重要新闻"),
     ("/sina-channels", "news-roll", None, "新浪-全部滚动新闻"),
     ("/sina-channels", "hotnews-comment-all", None, "新浪-评论数排行"),
     ("/netease-news-channels", "touch-news", None, "网易-今日关注"),
@@ -411,9 +408,8 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/douban-book-extra", "review-best", None, "豆瓣读书-最受欢迎书评"),
     ("/tech-blog-feeds", "devto-top-week", None, "技术博客-DEV 周榜"),
     ("/en-tech-review-feeds", "cnet-latest", None, "CNET-最新评测"),
-    ("/design-community", "uisdc-latest", None, "优设-最新"),
+    ("/design-community", "uisdc-hot-posts", None, "优设-热文榜单"),
     ("/en-science-misc-feeds", "foxsports-top", None, "FOX Sports-头条"),
-    ("/nasa", "news", None, "NASA-News"),
     ("/science-news", "hot", None, "Science-新闻"),
 ]
 
@@ -457,7 +453,7 @@ async def test_categories_endpoint(client: AsyncClient):
     # At least hotlist category should exist with routes
     hotlist = [c for c in data["categories"] if c["category"] == "hotlist"]
     assert len(hotlist) == 1
-    assert hotlist[0]["count"] == 367
+    assert hotlist[0]["count"] == 362
 
 
 @pytest.mark.asyncio

@@ -265,59 +265,6 @@ async def test_anond_maps_diary_ids_and_jst_timestamps(monkeypatch):
     assert result.data[1].hot is None  # はてなブックマーク数是图片,hot 留空
 
 
-# ---- Product Hunt 首页 Apollo SSR ----
-
-# undefined 是 Apollo SSR 字面量里真实存在的(board_api _js_array_after 处理)
-_PH_HTML = """<html><body><script>
-(window[Symbol.for("ApolloSSRDataTransport")] ??= []).push({
-"corbid":"7ab39196b88458983be2b51aa42d4c48","title":"Top Products Launching Today",
-"date":"2026-09-27T11:12:29-07:00","randomization":false,"period":"daily","items":[
-{"__typename":"Post","id":"1258630","name":"GPT-6 Sol & Luna","slug":"gpt-6-sol-luna",
- "tagline":"Frontier AI intelligence, now at half the price",
- "product":{"__typename":"Product","id":"594550","slug":"openai"},
- "thumbnailImageUuid":"f904aec8-e324-4aed-ae3b-ff68795ce44f.png",
- "featuredAt":"2026-09-27T00:01:00-07:00","createdAt":"2026-09-27T00:01:00-07:00",
- "latestScore":232,"dailyRank":"1"},
-{"__typename":"Ad","id":"ad-1","name":"Sponsored Thing","tagline":"ad"},
-{"__typename":"Post","id":"1258701","name":"Second Product","slug":"second-product","tagline":"",
- "product":null,"thumbnailImageUuid":null,"featuredAt":undefined,
- "createdAt":"2026-09-27T01:02:03-07:00","latestScore":12}
-]});
-</script></body></html>"""
-
-
-async def test_producthunt_parses_apollo_block_and_skips_ads(monkeypatch):
-    async def fake_get(**kwargs):
-        assert kwargs["url"] == "https://www.producthunt.com/"
-        return _ok(_PH_HTML)
-
-    monkeypatch.setattr(tech_blog_feeds, "get", fake_get)
-    result = await tech_blog_feeds.handle_route(_request("producthunt-today"), no_cache=True)
-
-    assert result.total == 2  # __typename=Ad 的广告跳过
-    first = result.data[0]
-    assert first.id == "1258630"
-    assert first.title == "GPT-6 Sol & Luna"
-    assert first.url == "https://www.producthunt.com/products/openai"  # /products/<slug>,与页面链接同形
-    assert first.desc == "Frontier AI intelligence, now at half the price"
-    assert first.cover == "https://ph-files.imgix.net/f904aec8-e324-4aed-ae3b-ff68795ce44f.png"
-    assert first.hot == 232  # latestScore 票数
-    assert first.timestamp == int(datetime(2026, 9, 27, 0, 1, 0, tzinfo=timezone(timedelta(hours=-7))).timestamp() * 1000)
-    second = result.data[1]
-    assert second.url == "https://www.producthunt.com/posts/second-product"  # 没有 product 时退 /posts/<slug>
-    assert second.timestamp == int(datetime(2026, 9, 27, 1, 2, 3, tzinfo=timezone(timedelta(hours=-7))).timestamp() * 1000)  # featuredAt 是 undefined → 退 createdAt
-    assert second.hot == 12
-
-
-async def test_producthunt_missing_block_is_rejected(monkeypatch):
-    async def fake_get(**kwargs):
-        return _ok("<html><body>Just a moment...</body></html>")
-
-    monkeypatch.setattr(tech_blog_feeds, "get", fake_get)
-    with pytest.raises(RuntimeError, match="Top Products Launching Today"):
-        await tech_blog_feeds.handle_route(_request("producthunt-today"), no_cache=True)
-
-
 # ---- Indie Hackers 首页默认列表 ----
 
 _IH_HOME = """
@@ -599,6 +546,7 @@ async def test_unknown_board_is_rejected():
 
 async def test_default_board_and_type_table():
     assert next(iter(tech_blog_feeds.type_map)) == "devto-top-week"  # board_api DEFAULT_TYPE
-    assert len(tech_blog_feeds.type_map) == 28
+    assert len(tech_blog_feeds.type_map) == 27
+    assert "producthunt-today" not in tech_blog_feeds.type_map
     assert tech_blog_feeds.ROUTE_META["name"] == tech_blog_feeds.ROUTE_NAME == "tech-blog-feeds"
     assert tech_blog_feeds.ROUTE_META["params"]["type"]["type"] is tech_blog_feeds.type_map

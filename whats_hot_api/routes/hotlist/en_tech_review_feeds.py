@@ -1,23 +1,21 @@
 """英文科技评测与行业媒体 feed —— CNET / TechRadar / Tom's Guide / ZDNET 等英文科技媒体的官方 feed。
 
-迁移自 board_api en_tech_review_feeds 单元（26 个已完成榜，多站点一个路由；PCMag 与
+迁移自 board_api en_tech_review_feeds 单元（26 个已完成榜，现存 25 个，多站点一个路由；PCMag 与
 CNET How To 不做：前者全站 Cloudflare JS 挑战页，后者原站栏目已下线，见 board_api README）。
 
 - 24 个子榜用站点官方 RSS / Atom feed，保留 feed 原顺序输出（原站顺序，不能按时间重排：
   Dark Reading 的活动预告带未来日期、CNET 的 Atom 按 ``<updated>`` 排序而 timestamp 取首发
   ``<published>``，重排会改变口径），feed 给多少条输出多少条，不截断
-- 2 个子榜解析栏目页 HTML：
-  - CNET Reviews 没有可用的 feed（/rss/reviews/ 是 404）：按页面顺序先取头部"REVIEWS"区块
-    （4 条 list-entry 标题 + 5 张 grid-entry 卡片），再接"LATEST REVIEWS"列表（一页 15 条），
-    同一链接只留第一次的位置，封面 / 摘要 / 发布日从后面的卡片补齐。Tech / Home / Wellness
-    是分类展示区（带自己的 .ccb-header__title），不是置顶区块，遇到就停
-  - SpaceNews AI：标签 feed 停在 2026-02（lastBuildDate 02-06），标签页仍在更新，改取标签页
-    第 1 页的文章卡片（10 条），id 用文章号拼 ?p=<号>（与旧 feed 的 guid 同一形式）
+- CNET Reviews 解析栏目页 HTML（没有可用的 feed，/rss/reviews/ 是 404）：按页面顺序先取头部
+  "REVIEWS"区块（4 条 list-entry 标题 + 5 张 grid-entry 卡片），再接"LATEST REVIEWS"列表
+  （一页 15 条），同一链接只留第一次的位置，封面 / 摘要 / 发布日从后面的卡片补齐。
+  Tech / Home / Wellness 是分类展示区（带自己的 .ccb-header__title），不是置顶区块，遇到就停
+- SpaceNews AI 标签页已因上游不可达下线
 - 反爬口径：全程不传 User-Agent（httpx 缺省 UA 即 python-httpx/<版本>，如实表明是程序）。
-  WordPress VIP 托管的 Rest of World、SpaceNews 对冒充浏览器的请求返回 403
-  "Checking your browser..."（JS 工作量证明），对程序 UA 直接 200，这两个子榜显式带上
-  程序 UA 以免共享客户端将来加默认浏览器 UA 时被 403；其余 24 个源对 UA 不敏感
-  （board_api min_request 实测程序 UA 全部 200、条数相同）。程序 UA 只拿得到这两个站
+  WordPress VIP 托管的 Rest of World 对冒充浏览器的请求返回 403
+  "Checking your browser..."（JS 工作量证明），对程序 UA 直接 200，该子榜显式带上
+  程序 UA 以免共享客户端将来加默认浏览器 UA 时被 403；其余源对 UA 不敏感
+  （board_api min_request 实测程序 UA 全部 200、条数相同）。程序 UA 只拿得到该站
   边缘缓存里的内容，缓存未命中时上游 429（此时 httpx raise_for_status 直接抛错），
   稍后再试，不换 UA、不执行任何校验脚本
 - 请求遇到挑战壳（Cloudflare "Just a moment..."、WordPress VIP "Checking your browser..."，
@@ -52,7 +50,7 @@ class _Feed(NamedTuple):
     column: str  # 栏目名，拼进 type 标签
     url: str  # feed 地址（kind 不是 feed 时是栏目页）
     page: str  # 原站栏目页，写进 RouterData.link
-    kind: str = "feed"  # feed：RSS / Atom；cnet：CNET Reviews 栏目页；newspack：SpaceNews 标签页
+    kind: str = "feed"  # feed：RSS / Atom；cnet：CNET Reviews 栏目页
     program_ua: bool = False  # True：必须用程序 UA（不能是浏览器 UA），显式带上 python-httpx UA
 
 
@@ -78,16 +76,6 @@ _FEEDS: dict[str, _Feed] = {
     # 对如实标明自己是程序的 UA 直接给数据，所以这两个显式带程序 UA
     "restofworld-latest": _Feed(
         "Rest of World", "全站最新", "https://restofworld.org/feed/latest/", "https://restofworld.org/", program_ua=True
-    ),
-    # 标签 feed tag/artificial-intelligence/feed/ 停在 2026-01-22（lastBuildDate 02-06），
-    # 标签页第 1 页是 06~09 月的 10 篇，改取标签页
-    "spacenews-ai": _Feed(
-        "SpaceNews",
-        "artificial intelligence",
-        "https://spacenews.com/tag/artificial-intelligence/",
-        "https://spacenews.com/tag/artificial-intelligence/",
-        "newspack",
-        program_ua=True,
     ),
     "techradar-best": _Feed("TechRadar", "Best", "https://www.techradar.com/feeds/articletype/best", "https://www.techradar.com/best"),
     "techradar-news": _Feed("TechRadar", "News", "https://www.techradar.com/feeds/articletype/news", "https://www.techradar.com/news"),
@@ -156,10 +144,8 @@ async def _get_board(feed: _Feed, board: str, no_cache: bool) -> dict:
     _reject_challenge(body, feed)
     if feed.kind == "feed":
         items = _parse_feed(body)
-    elif feed.kind == "cnet":
+    else:  # cnet
         items = _parse_cnet_reviews(body, feed.page)
-    else:
-        items = _parse_newspack(body, feed.page)
     if not items:
         raise RuntimeError(f"{feed.site} · {feed.column} parsed no items (challenge page or layout change): {feed.url}")
     return {"from_cache": result.from_cache, "update_time": result.update_time, "data": items}
@@ -371,48 +357,3 @@ def _parse_cnet_reviews(html: str, page: str) -> list[ListItem]:
         ListItem(id=url, title=found[url]["title"], url=url, mobileUrl=url, cover=found[url]["cover"], desc=found[url]["desc"], timestamp=found[url]["ts"])
         for url in order
     ]
-
-
-# ---------------------------------------------------------------- SpaceNews AI（HTML）
-
-
-def _parse_newspack(html: str, page: str) -> list[ListItem]:
-    """SpaceNews 标签页（WordPress Newspack 主题）<main> 里的文章卡片，按页面顺序，一页 10 条。
-    卡片：h2.entry-title a（标题、链接）、time.entry-date.published@datetime（发布时间）、
-    .author a（作者）、img@src（封面）、.entry-content（摘要，只有第 1 张卡片有）。
-    id 用文章号拼 ?p=<号>（article#post-<号>，与旧 feed 的 guid 同一形式）。"""
-    soup = BeautifulSoup(html, "lxml")
-    main = soup.find("main")
-    if main is None:
-        return []
-    items: list[ListItem] = []
-    seen: set[str] = set()
-    for card in main.find_all("article"):
-        link = card.select_one("h2.entry-title a[href]")
-        href = link.get("href") if link else None
-        title = re.sub(r"\s+", " ", link.get_text(" ", strip=True)).strip() if link else ""
-        if not isinstance(href, str) or not href or not title:
-            continue
-        url = urljoin(page, href)
-        if url in seen:
-            continue
-        seen.add(url)
-        post_id = card.get("id")
-        img = card.find("img")
-        src = img.get("src") if img else None
-        stamp = card.select_one("time.entry-date.published") or card.find("time")
-        authors = [re.sub(r"\s+", " ", a.get_text(" ", strip=True)).strip() for a in card.select(".author a")]
-        number = post_id.removeprefix("post-") if isinstance(post_id, str) else ""
-        items.append(
-            ListItem(
-                id=urljoin(page, f"/?p={number}") if number.isdigit() else url,
-                title=title,
-                url=url,
-                mobileUrl=url,
-                author=", ".join(a for a in authors if a) or None,
-                cover=src if isinstance(src, str) and src.startswith("http") else None,
-                desc=_html_text(entry_content.get_text(" ", strip=True)) if (entry_content := card.select_one(".entry-content")) else None,
-                timestamp=_iso_ms(stamp.get("datetime")) if stamp else None,
-            )
-        )
-    return items

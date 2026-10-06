@@ -65,15 +65,16 @@ async def test_drama_board_items_come_from_tube_rank(monkeypatch):
         return RequestResult(False, "t", {
             "code": "200",
             "data": {
-                "topRank": [{"tubeName": "短剧甲", "url": "https://www.kuaishou.com/short-video/3xabc?from=x",
-                             "popularityValue": 777, "poster": "https://img.ks/p.jpg", "channelName": "都市", "onlineTime": 1790769600}],
-                "mustRank": [],
+                "topRank": [],
+                "mustRank": [{"tubeName": "短剧甲", "url": "https://www.kuaishou.com/short-video/3xabc?from=x",
+                              "popularityValue": 777, "poster": "https://img.ks/p.jpg", "channelName": "都市", "onlineTime": 1790769600}],
             },
         })
 
     monkeypatch.setattr(kuaishou_index, "get", fake_get)
-    result = await kuaishou_index.handle_route(_request("drama-hot"), no_cache=True)
+    result = await kuaishou_index.handle_route(_request("drama-must"), no_cache=True)
 
+    assert result.type == "短剧必看榜"
     item = result.data[0]
     assert item.id == "3xabc"
     assert item.hot == 777
@@ -82,15 +83,11 @@ async def test_drama_board_items_come_from_tube_rank(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_drama_hot_allows_empty_but_drama_must_does_not(monkeypatch):
+async def test_empty_drama_must_is_an_error(monkeypatch):
     async def fake_get(url, headers=None, no_cache=None, **kwargs):
         return RequestResult(False, "t", {"code": "200", "data": {"topRank": [], "mustRank": []}})
 
     monkeypatch.setattr(kuaishou_index, "get", fake_get)
-
-    empty_ok = await kuaishou_index.handle_route(_request("drama-hot"), no_cache=True)
-    assert empty_ok.data == []
-    assert "没有条目" in (empty_ok.message or "")
 
     with pytest.raises(RuntimeError, match="returned no items"):
         await kuaishou_index.handle_route(_request("drama-must"), no_cache=True)
@@ -104,3 +101,8 @@ async def test_business_error_code_is_an_error(monkeypatch):
     monkeypatch.setattr(kuaishou_index, "post", fake_post)
     with pytest.raises(RuntimeError, match="100001"):
         await kuaishou_index.handle_route(_request("hot"), no_cache=True)
+
+
+def test_removed_drama_hot_board_is_gone():
+    assert "drama-hot" not in kuaishou_index.ROUTE_META["params"]["type"]["type"]
+    assert len(kuaishou_index.type_map) == 7

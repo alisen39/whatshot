@@ -218,8 +218,8 @@ async def test_default_board_is_first_declared_type_and_all_boards_declared(monk
     assert captured["url"] == "https://arstechnica.com/gadgets/feed/"
     assert result.type == "Ars Technica · Tech"
     assert result.total == 1
-    assert len(en_tech_media_feeds.type_map) == 23  # 23 个已完成榜全部声明
-    assert len(set(en_tech_media_feeds.type_map.values())) == 23  # 标签互不相同
+    assert len(en_tech_media_feeds.type_map) == 22  # 23 个已完成榜去掉下线的 VentureBeat
+    assert len(set(en_tech_media_feeds.type_map.values())) == 22  # 标签互不相同
 
 
 @pytest.mark.asyncio
@@ -319,52 +319,14 @@ async def test_empty_feed_raises(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_venturebeat_429_challenge_retries_once(monkeypatch):
-    # Vercel 机器人检测：429 挑战页等 5 秒重试 1 次，第二次成功（fake_sleep 截住真实等待）
+async def test_upstream_http_error_is_not_retried(monkeypatch):
     captured: dict = {}
-    xml = _rss(_rss_item("VB story", "https://venturebeat.com/2026/09/vb-story/", author="Sean Szymkowski"))
-    sleeps: list[float] = []
-
-    async def fake_sleep(seconds):
-        sleeps.append(seconds)
-
-    monkeypatch.setattr(en_tech_media_feeds.asyncio, "sleep", fake_sleep)
-    calls = await _fake_get(
-        monkeypatch,
-        [_status_error("https://venturebeat.com/feed", 429), RequestResult(False, _UPDATE_TIME, xml)],
-        captured,
-    )
-
-    result = await en_tech_media_feeds.handle_route(_request("venturebeat-latest"), no_cache=True)
-
-    assert calls["n"] == 2  # 重试了 1 次
-    assert sleeps == [5.0]  # 等 5 秒（board_api 同口径）
-    assert captured["url"] == "https://venturebeat.com/feed"
-    assert result.type == "VentureBeat · 全站最新"
-    assert result.data[0].title == "VB story"
-
-
-@pytest.mark.asyncio
-async def test_venturebeat_429_twice_raises_and_other_boards_do_not_retry(monkeypatch):
-    sleeps: list[float] = []
-
-    async def fake_sleep(seconds):
-        sleeps.append(seconds)
-
-    monkeypatch.setattr(en_tech_media_feeds.asyncio, "sleep", fake_sleep)
-    captured: dict = {}
-    calls = await _fake_get(
-        monkeypatch,
-        [_status_error("https://venturebeat.com/feed", 429)],
-        captured,
-    )
-    with pytest.raises(httpx.HTTPStatusError):
-        await en_tech_media_feeds.handle_route(_request("venturebeat-latest"), no_cache=True)
-    assert calls["n"] == 2  # venturebeat：429 重试 1 次后仍 429，报错退出
-    assert sleeps == [5.0]
-
     calls = await _fake_get(monkeypatch, [_status_error("https://arstechnica.com/apple/feed/", 429)], captured)
     with pytest.raises(httpx.HTTPStatusError):
         await en_tech_media_feeds.handle_route(_request("ars-apple"), no_cache=True)
-    assert calls["n"] == 1  # 其余子榜不重试 429
-    assert sleeps == [5.0]  # 没有新的等待
+    assert calls["n"] == 1  # 子榜不重试 429
+
+
+def test_removed_venturebeat_board_is_gone():
+    assert "venturebeat-latest" not in en_tech_media_feeds.type_map
+    assert not any(feed.site == "VentureBeat" for feed in en_tech_media_feeds._FEEDS.values())

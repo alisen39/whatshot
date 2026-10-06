@@ -208,42 +208,20 @@ async def test_cnet_reviews_structure_change_raises(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_spacenews_newspack_parse(monkeypatch):
-    """SpaceNews 标签页:文章号拼 ?p=<号> 作 id,作者逗号连接,ISO 时间转毫秒,同链接去重。"""
-    html = """
-    <html><body><main>
-      <article id="post-615532">
-        <h2 class="entry-title"><a href="https://spacenews.com/you-cannot-task-a-changing-planet/">You cannot task a changing planet</a></h2>
-        <time class="entry-date published" datetime="2026-09-14T09:00:00-04:00">September 14, 2026</time>
-        <div class="author"><a href="/author/a/">Don Osborne</a></div>
-        <div class="author"><a href="/author/b/">Irene Klotz</a></div>
-        <div class="entry-content"><p>Only the first card has a summary.</p></div>
-        <img src="https://spacenews.com/wp-content/uploads/x.jpg" />
-      </article>
-      <article id="post-615540">
-        <h2 class="entry-title"><a href="/second-post/">Second post</a></h2>
-        <time class="entry-date published" datetime="2026-09-20T10:00:00-04:00">September 20, 2026</time>
-        <div class="author"><a href="/author/c/">Chris Chen</a></div>
-      </article>
-    </main></body></html>
-    """
+async def test_restofworld_uses_program_ua(monkeypatch):
+    """WordPress VIP 拒绝浏览器 UA:Rest of World 必须如实标明是程序。"""
     capture: dict = {}
-    monkeypatch.setattr(mod, "get", _mock_get(html, capture=capture))
-    result = await mod.handle_route(_request("spacenews-ai"), no_cache=True)
+    monkeypatch.setattr(mod, "get", _mock_get(_rss(_rss_item("RoW", "https://restofworld.org/2026/x/")), capture=capture))
+    result = await mod.handle_route(_request("restofworld-latest"), no_cache=True)
 
-    assert capture["url"] == "https://spacenews.com/tag/artificial-intelligence/"
-    ua = capture["headers"]["User-Agent"]
-    assert ua.startswith("python-httpx/")  # WordPress VIP 拒绝浏览器 UA,必须如实标明是程序
-    assert result.type == "SpaceNews · artificial intelligence"
-    first = result.data[0]
-    assert first.id == "https://spacenews.com/?p=615532"  # 与旧 feed 的 guid 同一形式
-    assert first.title == "You cannot task a changing planet"
-    assert first.author == "Don Osborne, Irene Klotz"
-    assert first.cover == "https://spacenews.com/wp-content/uploads/x.jpg"
-    assert first.desc == "Only the first card has a summary."
-    expected_ms = int(datetime(2026, 9, 14, 13, 0, tzinfo=UTC).timestamp() * 1000)
-    assert first.timestamp == expected_ms  # 09:00-04:00 -> UTC 13:00 -> 毫秒
-    assert result.data[1].desc is None  # 只有第 1 张卡片有摘要
+    assert capture["headers"]["User-Agent"].startswith("python-httpx/")
+    assert result.total == 1
+
+
+def test_removed_spacenews_board_is_gone():
+    assert "spacenews-ai" not in mod.type_map
+    assert len(mod.type_map) == 25
+    assert {feed.kind for feed in mod._FEEDS.values()} == {"feed", "cnet"}
 
 
 @pytest.mark.asyncio

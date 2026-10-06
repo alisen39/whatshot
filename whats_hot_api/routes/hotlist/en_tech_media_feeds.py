@@ -1,11 +1,12 @@
 """英文科技媒体分类 feed：Ars Technica、NVIDIA、InfoQ、MacRumors、MIT News、TechCrunch、
-The Register、The Verge、VentureBeat、WIRED（多站点，type=站点-栏目）。
+The Register、The Verge、WIRED（多站点，type=站点-栏目）。
 
-迁移自 board_api en_tech_media_feeds 单元（23 个已完成榜，4 个停更榜不做）：
-- 22 个子榜是站点官方 RSS / Atom，用共享 ``parse_feed`` 解析（字段映射与 whatshot 一致：
+迁移自 board_api en_tech_media_feeds 单元（23 个已完成榜，4 个停更榜不做；
+VentureBeat 全站最新已因上游不可达下线，现存 22 个）：
+- 21 个子榜是站点官方 RSS / Atom，用共享 ``parse_feed`` 解析（字段映射与 whatshot 一致：
   id 取 guid/id 缺省链接、desc 去 HTML 前 500 字、cover 依次 media:thumbnail / media:content /
   image / enclosure / 摘要首图）；feed 给多少条输出多少条（7~100 条不等），不截断。
-  22 个 feed 都按发布时间倒序（board_api 证据：相邻逆序 0 处），parse_feed 的时间倒序重排
+  21 个 feed 都按发布时间倒序（board_api 证据：相邻逆序 0 处），parse_feed 的时间倒序重排
   与 feed 原顺序一致
 - register-ai-ml 取栏目页 https://www.theregister.com/ai_ml/（页面标 "SOFTWARE > AI + ML"，
   服务端渲染）的文章卡片，见 ``_parse_register_cards``。不用旧 feed
@@ -15,10 +16,7 @@ The Register、The Verge、VentureBeat、WIRED（多站点，type=站点-栏目�
   /ai_ml/headlines.rss 都是 404，页面没有 alternate feed。栏目页翻页由前端脚本加载，
   只取服务端渲染的第 1 页（约 70 条）
 - 请求口径照 board_api 证据：所有子榜统一带 Chrome UA（board_api 项目缺省 UA，没有为任何
-  站点专门改）、Accept 按 feed / 栏目页区分。VentureBeat 托管在 Vercel：程序 UA
-  （python-httpx）返回 429 "Vercel Security Checkpoint" 挑战页，Chrome UA 可通过
-  （TLS 指纹仍看客户端，curl 带 Chrome UA 也 429，httpx 可以）；遇 429 挑战页等 5 秒重试
-  1 次，仍 429 报错退出，不换客户端绕过
+  站点专门改）、Accept 按 feed / 栏目页区分
 - 不做的 4 个榜：Ars Cardboard、MacRumors Mac / iPhone、WIRED Guides，原站已停更
   （board_api README；门槛：日更/周更/期刊 3 个月，其他栏目 12 个月）
 - Ars Technica 的分类页 HTML 返回 405（AWS WAF 验证页），只用 feed
@@ -26,13 +24,11 @@ The Register、The Verge、VentureBeat、WIRED（多站点，type=站点-栏目�
 
 from __future__ import annotations
 
-import asyncio
 import re
 from datetime import datetime
 from typing import NamedTuple
 from urllib.parse import urljoin
 
-import httpx
 from bs4 import BeautifulSoup, Tag
 from starlette.requests import Request
 
@@ -104,7 +100,6 @@ _FEEDS: dict[str, _Feed] = {
         "The Verge", "Science", "https://www.theverge.com/rss/science/index.xml", "https://www.theverge.com/science"
     ),
     "verge-tech": _Feed("The Verge", "Tech", "https://www.theverge.com/rss/tech/index.xml", "https://www.theverge.com/tech"),
-    "venturebeat-latest": _Feed("VentureBeat", "全站最新", "https://venturebeat.com/feed", "https://venturebeat.com/"),
     "wired-ai": _Feed(
         "WIRED", "Artificial Intelligence", "https://www.wired.com/feed/tag/ai/latest/rss", "https://www.wired.com/tag/artificial-intelligence/"
     ),
@@ -118,21 +113,18 @@ type_map: dict[str, str] = {key: f"{feed.site} · {feed.column}" for key, feed i
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "英文科技媒体分类 feed",
-    "description": "Ars Technica、TechCrunch、WIRED、The Verge、MacRumors、MIT News、NVIDIA、InfoQ、The Register、VentureBeat 的官方分类 feed 与栏目页",
+    "description": "Ars Technica、TechCrunch、WIRED、The Verge、MacRumors、MIT News、NVIDIA、InfoQ、The Register 的官方分类 feed 与栏目页",
     "link": "https://arstechnica.com/",
     "params": {"type": {"name": "站点-栏目", "type": type_map}},
 }
 
-# board_api 全部请求都带项目缺省的 Chrome UA；VentureBeat 靠它通过 Vercel 机器人检测
+# board_api 全部请求都带项目缺省的 Chrome UA
 _BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
 _FEED_ACCEPT = "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8"
 _HTML_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-_VENTUREBEAT_URL = "https://venturebeat.com/feed"
-# Vercel 挑战页：等 5 秒重试 1 次（board_api 同口径），仍 429 报错退出
-_VERCEL_RETRY_WAIT_SECONDS = 5.0
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
@@ -141,10 +133,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         raise ValueError(f"Unknown board '{board}' for route '{ROUTE_NAME}'")
     feed = _FEEDS[board]
     if feed.kind == "register":
-        fetched = await _fetch_text(feed.url, _HTML_ACCEPT, f"{ROUTE_NAME}:register-ai-ml", no_cache, retry_429=False)
+        fetched = await _fetch_text(feed.url, _HTML_ACCEPT, f"{ROUTE_NAME}:register-ai-ml", no_cache)
         items = _parse_register_cards(fetched["text"], feed.page)
     else:
-        fetched = await _fetch_text(feed.url, _FEED_ACCEPT, f"{ROUTE_NAME}:{board}", no_cache, retry_429=feed.url == _VENTUREBEAT_URL)
+        fetched = await _fetch_text(feed.url, _FEED_ACCEPT, f"{ROUTE_NAME}:{board}", no_cache)
         items = parse_feed(fetched["text"])
     if not items:
         # 严格拒绝空解析：错误页 / 空壳 / 结构变化不得静默降级为空榜
@@ -162,25 +154,15 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _fetch_text(url: str, accept: str, cache_key: str, no_cache: bool, retry_429: bool) -> dict:
-    attempts = 2 if retry_429 else 1
-    for attempt in range(attempts):
-        try:
-            result = await get(
-                url=url,
-                headers={"User-Agent": _BROWSER_UA, "Accept": accept},
-                no_cache=no_cache,
-                response_type="text",
-                cache_key=cache_key,
-            )
-            return {"from_cache": result.from_cache, "update_time": result.update_time, "text": str(result.data)}
-        except httpx.HTTPStatusError as exc:
-            # VentureBeat 的 Vercel 机器人检测：429 挑战页按 UA + TLS 指纹触发，
-            # 等 5 秒重试 1 次；仍 429 报错退出，不换客户端绕过
-            if exc.response.status_code != 429 or attempt + 1 >= attempts:
-                raise
-            await asyncio.sleep(_VERCEL_RETRY_WAIT_SECONDS)
-    raise RuntimeError(f"unreachable: retry loop for {url}")  # pragma: no cover
+async def _fetch_text(url: str, accept: str, cache_key: str, no_cache: bool) -> dict:
+    result = await get(
+        url=url,
+        headers={"User-Agent": _BROWSER_UA, "Accept": accept},
+        no_cache=no_cache,
+        response_type="text",
+        cache_key=cache_key,
+    )
+    return {"from_cache": result.from_cache, "update_time": result.update_time, "text": str(result.data)}
 
 
 def _parse_register_cards(html_text: str, page: str) -> list[ListItem]:

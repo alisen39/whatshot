@@ -1,6 +1,6 @@
-"""安全与破解社区：吾爱破解、先知社区、FreeBuf、安全内参（多站点，type=站点-栏目）。
+"""安全与破解社区：吾爱破解、先知社区、安全内参（多站点，type=站点-栏目）。
 
-迁移自 board_api security_communities 单元（9 个已完成榜），每个子榜 1 个请求：
+迁移自 board_api security_communities 单元（9 个已完成榜；FreeBuf 2 个已因上游不可达下线），每个子榜 1 个请求：
 - 吾爱破解（www.52pojie.cn，Discuz!，GBK）4 个榜，都是服务端渲染的 HTML 页面：
   首页 toplist 插件的「人气热门」列（``table.toplist_7ree``，表头定位列）、排行榜
   「帖子热度排行 · 今日」（``misc.php?mod=ranklist&type=thread&view=heats&orderby=today``）、
@@ -19,12 +19,6 @@
   「精选文章」是 /news 首屏缺省页签，页面发出的 ajax ``/news?isAjax=true&type=recommend``
   必须带 ``X-Requested-With: XMLHttpRequest``，否则返回整页 HTML；返回 ``{data: HTML 片段}``。
   两处的时间都是不带时区的 UTC（feed 频道 <updated> 带 +00:00，条目时间与它同一时刻），按 UTC 换算
-- FreeBuf（www.freebuf.com）2 个榜：首页是 Nuxt 前端渲染（whatshot 既有 freebuf 路由解析
-  ``.article-item`` 已取到 0 条），本路由改走页面自己的列表接口
-  ``/fapi/frontend/home/article``，参数取自页面 JS 的缺省值（page=1、limit=20、category=精选）；
-  type=1 是「最新」，type=2 + day=7 是「热榜 · 7 天内」（按阅读数）。对程序 UA 会返回
-  阿里云 WAF 的 JS 挑战页，必须带浏览器 UA（board_api 实测项目缺省 UA 直接通过，间歇拦截时
-  拿到非 JSON 就报错，不执行挑战脚本）；type=1 时 day 不起作用，照页面带上
 - 安全内参（www.secrss.com）1 个榜：首页「最新资讯」。首屏服务端渲染 20 条，「加载更多」调用
   ``/api/articles``；不带 ``lastPublishedAt`` 时返回的就是首屏那 20 条（逐条同序），且带精确到秒的
   发布时间，所以取接口。业务壳是 ``{"code": "10000", data: [...]}``，其他 code 按业务错误报错
@@ -40,7 +34,6 @@ import json
 import re
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
 from starlette.requests import Request
@@ -58,8 +51,6 @@ _TYPE_MAP: dict[str, str] = {
     "52pojie-software": "吾爱破解 · 精品软件区（最新发表）",
     "xz-latest": "先知社区 · 最新文章",
     "xz-recommend": "先知社区 · 精选文章",
-    "freebuf-latest": "FreeBuf · 最新",
-    "freebuf-weekly-hot": "FreeBuf · 热榜（7 天内）",
     "secrss-latest": "安全内参 · 最新资讯",
 }
 
@@ -68,7 +59,7 @@ _DEFAULT_TYPE = "52pojie-hot"
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "安全与破解社区",
-    "description": "吾爱破解（人气热门、今日热帖、原创发布区、精品软件区）、先知社区（最新、精选文章）、FreeBuf（最新、7 天热榜）、安全内参最新资讯。",
+    "description": "吾爱破解（人气热门、今日热帖、原创发布区、精品软件区）、先知社区（最新、精选文章）、安全内参最新资讯。",
     "link": "https://www.52pojie.cn/",
     "params": {"type": {"name": "站点-栏目", "type": _TYPE_MAP}},
 }
@@ -76,7 +67,7 @@ ROUTE_META: dict = {
 _HTML_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 _JSON_ACCEPT = "application/json, text/plain, */*"
 # board_api 证据的全部请求都带这组客户端头（common.http.DEFAULT_HEADERS）；
-# 吾爱破解 WAF 间歇出滑块时任何 UA 都拦（不换 UA），FreeBuf 对程序 UA 必拦（浏览器 UA 直接通过）
+# 吾爱破解 WAF 间歇出滑块时任何 UA 都拦（不换 UA）
 _BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
@@ -109,16 +100,6 @@ _XZ_RECOMMEND_HEADERS = {
     "Referer": "https://xz.aliyun.com/news",
 }
 
-# ---------------------------------------------------------------- FreeBuf
-
-_FREEBUF = "https://www.freebuf.com/"
-_FREEBUF_API = "https://www.freebuf.com/fapi/frontend/home/article"
-# 页面 JS 的缺省参数 parmas:{page:1,limit:20,type:"1",day:7,category:"精选"}；点「热榜」时 type=2（day=7，7 天内）
-_FREEBUF_PARAMS: dict[str, dict[str, Any]] = {
-    "freebuf-latest": {"page": 1, "limit": 20, "type": 1, "day": 7, "category": "精选"},
-    "freebuf-weekly-hot": {"page": 1, "limit": 20, "type": 2, "day": 7, "category": "精选"},
-}
-
 # ---------------------------------------------------------------- 安全内参
 
 _SECRSS_API = "https://www.secrss.com/api/articles"
@@ -139,7 +120,6 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     fetchers = {
         "52pojie": _get_52pojie,
         "xz": _get_xz,
-        "freebuf": _get_freebuf,
         "secrss": _get_secrss,
     }
     list_data = await fetchers[site](board, no_cache)
@@ -473,59 +453,6 @@ def _xz_recommend_items(payload: Any) -> list[ListItem]:
             )
         )
     return items
-
-
-# ---------------------------------------------------------------- FreeBuf
-
-
-async def _get_freebuf(board: str, no_cache: bool) -> dict:
-    result = await get(
-        url=_FREEBUF_API,
-        params=_FREEBUF_PARAMS[board],
-        headers={**_BASE_HEADERS, "Accept": _JSON_ACCEPT, "Referer": _FREEBUF},
-        no_cache=no_cache,
-        response_type="text",
-        cache_key=f"{ROUTE_NAME}:{board}",
-    )
-    text = result.data if isinstance(result.data, str) else str(result.data)
-    if "aliyun_waf" in text[:4000]:
-        # 程序 UA 会拿到阿里云 WAF 的 JS 挑战页；浏览器 UA 间歇也会被拦。不执行挑战脚本
-        raise RuntimeError("freebuf returned an aliyun WAF JS challenge page, not executing the challenge script")
-    try:
-        payload: dict[str, Any] = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"freebuf did not return JSON (content changed): {text[:120]!r}") from exc
-    if payload.get("code") != 200:
-        raise RuntimeError(f"freebuf API returned code={payload.get('code')} msg={payload.get('msg')}")
-    rows = (payload.get("data") or {}).get("list")
-    if not isinstance(rows, list):
-        raise RuntimeError(  # noqa: TRY004 - upstream shape problem, not a caller bug
-        "freebuf API response has no data.list (feed changed)"
-    )
-    items: list[ListItem] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        item_id = row.get("ID")
-        title = str(row.get("post_title") or "").strip()
-        link = str(row.get("url") or "").strip()
-        if not item_id or not title or not link:
-            continue
-        url = urljoin(_FREEBUF, link)
-        items.append(
-            ListItem(
-                id=str(item_id),
-                title=title,
-                url=url,
-                mobileUrl=url,
-                cover=row.get("post_image") or row.get("column_post_picture") or None,
-                author=row.get("nickname") or row.get("username") or None,
-                desc=row.get("content") or None,
-                hot=row.get("read_count"),
-                timestamp=get_time(str(row.get("post_date") or "")),
-            )
-        )
-    return _finish(result, items)
 
 
 # ---------------------------------------------------------------- 安全内参

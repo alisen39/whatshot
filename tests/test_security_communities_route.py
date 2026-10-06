@@ -2,7 +2,7 @@
 
 证据来源：tmp/board_api/security_communities/evidence/
 （01_52pojie_home、02_52pojie_ranklist、03_52pojie_forum2、07_xz_ajax_recommend、
-20_xz_feed_0930、10_freebuf_api_latest、14_secrss_api_articles）。
+20_xz_feed_0930、14_secrss_api_articles）。
 """
 
 from __future__ import annotations
@@ -257,64 +257,6 @@ async def test_xz_ajax_without_xhr_returns_full_page_and_is_rejected(monkeypatch
         await route.handle_route(_request("xz-recommend"), no_cache=True)
 
 
-# ---------------------------------------------------------------- FreeBuf
-
-
-_FREEBUF_PAYLOAD = {
-    "code": 200,
-    "msg": "成功",
-    "data": {
-        "count": 26937,
-        "list": [
-            {
-                "ID": "502450",
-                "post_title": "当 Agent 成为入口：AI Agent 系统攻击面深度测绘",
-                "url": "/articles/ai-security/502450.html",
-                "post_date": "2026-09-28 08:00:00",
-                "read_count": 3413,
-                "nickname": "kkkkkkkkk12",
-                "username": "kkkkkkkkk12",
-                "content": "本文将以一个典型的企业 AI 客服 Agent 为目标。",
-                "post_image": "https://image.3001.net/images/20260922/a.png",
-            }
-        ],
-    },
-}
-
-
-@pytest.mark.asyncio
-async def test_freebuf_weekly_hot_uses_type2_day7(monkeypatch):
-    captured: dict = {}
-    monkeypatch.setattr(route, "get", _fake_get(json.dumps(_FREEBUF_PAYLOAD, ensure_ascii=False), captured))
-    result = await route.handle_route(_request("freebuf-weekly-hot"), no_cache=True)
-
-    assert captured["url"] == "https://www.freebuf.com/fapi/frontend/home/article"
-    assert captured["params"]["type"] == 2
-    assert captured["params"]["day"] == 7  # 热榜 7 天窗口
-    assert captured["params"]["category"] == "精选"
-    assert captured["headers"]["User-Agent"].startswith("Mozilla/5.0")  # 程序 UA 会被阿里云 WAF 拦
-    assert captured["headers"]["Referer"] == "https://www.freebuf.com/"
-    item = result.data[0]
-    assert item.id == "502450"
-    assert item.title == "当 Agent 成为入口：AI Agent 系统攻击面深度测绘"
-    assert item.url == "https://www.freebuf.com/articles/ai-security/502450.html"  # 相对路径拼域名
-    assert item.hot == 3413
-    assert item.author == "kkkkkkkkk12"
-    assert item.timestamp == _ms("2026-09-28 08:00:00")
-
-
-@pytest.mark.asyncio
-async def test_freebuf_waf_challenge_and_business_error_are_rejected(monkeypatch):
-    waf_page = '<!doctype html><meta name="aliyun_waf_aa" content="ff9267a8a12c601c6ae545d5ca4a7fb4">'
-    monkeypatch.setattr(route, "get", _fake_get(waf_page))
-    with pytest.raises(RuntimeError, match="aliyun WAF"):
-        await route.handle_route(_request("freebuf-latest"), no_cache=True)
-
-    monkeypatch.setattr(route, "get", _fake_get(json.dumps({"code": 401, "msg": "unauthorized"})))
-    with pytest.raises(RuntimeError, match="code=401"):
-        await route.handle_route(_request("freebuf-latest"), no_cache=True)
-
-
 # ---------------------------------------------------------------- 安全内参
 
 
@@ -370,6 +312,7 @@ async def test_unknown_board_is_rejected():
 
 
 def test_type_map_declares_all_boards():
-    assert len(route._TYPE_MAP) == 9
+    assert len(route._TYPE_MAP) == 7
+    assert {"freebuf-latest", "freebuf-weekly-hot"}.isdisjoint(route._TYPE_MAP)
     assert next(iter(route._TYPE_MAP)) == "52pojie-hot"  # 声明序第一个是默认榜
     assert route.ROUTE_META["params"]["type"]["type"] is route._TYPE_MAP

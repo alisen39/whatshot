@@ -1,9 +1,9 @@
-"""杂志与人文网站(FT中文网、三联生活周刊、國家地理雜誌中文網、日经中文网、科学网、
+"""杂志与人文网站(FT中文网、三联生活周刊、國家地理雜誌中文網、科学网、
 第一财经杂志、哈佛商业评论、环球科学;公开页面 / 原站接口 / 官方 RSS,不登录、无 cookie)。
 
 board_api 单元 `tmp/board_api/magazine_sites` 的 1:1 迁移,证据见该目录 README、
 `verify/header_matrix.md`、`verify/adversarial_review.md`、`verify/fallback_check.md`。
-12 个子榜(子榜键"站点-栏目";FT"十大热门文章"与"一周十大热门文章"是同一个匿名可见
+原 12 个子榜(日经中文网已因上游不可达下线,现存 11 个;子榜键"站点-栏目";FT"十大热门文章"与"一周十大热门文章"是同一个匿名可见
 的一周热门列表,两个 tophub 节点共用 ft-hot-weekly):
 
 - FT 中文网:频道页 /channel/*.html 对匿名 429(TG-ANON-HEAVY-LOCKDOWN),三个榜都不走
@@ -15,10 +15,6 @@ board_api 单元 `tmp/board_api/magazine_sites` 的 1:1 迁移,证据见该目�
   (tagId=1、type=3、sort=2、pgSize=20;header_matrix:type/sort 去掉后返回别的列表)
 - 國家地理雜誌中文網(繁体):首页 section.lastest"最新探索";環境與保育文章總匯页
   section.content-all(去掉右栏 .article-link-right"熱門精選")
-- 日经中文网:官方 RSS /rss.html。非浏览器 UA 被 CloudFront 返回缓存的 403"系统维护"
-  页(header_matrix 实测),所以带浏览器 UA;403 时带时间戳查询串重取一次。
-  pubDate 全是 RSS 生成时间,文章时间取链接里的 YYYY-MM-DD-hh-mm-ss,按北京时间解释
-  (时区未经原站确认);RSS 链接是 http,按站点 HSTS 改 https
 - 科学网:新闻首页"头 条""要 闻"两个区块;"更多"页(topnews.aspx/indexyaowen.aspx)
   按 id 补完整标题、作者、时间(要闻区块把长标题截成"…"),右栏 #topnews 一周排行不算。
   头条区块是编辑挑的(常放站外链接),站外链接与不在"更多"页第 1 页的稿件没有作者和时间
@@ -33,8 +29,7 @@ board_api 单元 `tmp/board_api/magazine_sites` 的 1:1 迁移,证据见该目�
 - 环球科学:首页 WordPress 主循环 article.mg-posts-sec-post(10 篇,置顶排最前)
 
 爱思想 3 个榜本机受阻(公司上网策略)、中国国家地理网"热度榜"列表停更,都不在 type 里,
-见 board_api README。本机 DNS 对 cn.nikkei.com 间歇污染属于本地环境问题,Core 共享
-http_client 走系统解析,不做 DoH 特判(生产环境 DNS 正常;403 重试路径兜底偶发维护页)。
+见 board_api README。
 """
 
 from __future__ import annotations
@@ -42,7 +37,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -59,12 +53,6 @@ from whats_hot_api.utils.http_client import RequestResult, get
 ROUTE_NAME = "magazine-sites"
 
 _BEIJING = timezone(timedelta(hours=8))
-# CloudFront 对 python-httpx / curl 缺省 UA 返回缓存的 403 维护页(header_matrix 实测),
-# 只有日经必须带浏览器 UA;其余站点 httpx 缺省头即 200,不带多余头。
-_BROWSER_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
-)
 
 _FT = "https://www.ftchinese.com"
 _FT_FEEDS = {"ft-news": "/rss/news", "ft-feed": "/rss/feed"}
@@ -74,7 +62,6 @@ _LIFEWEEK_LIST = (
     "?pgNo=1&tagId=1&type=3&sort=2&pgSize=20&uid="
 )
 _NATGEO = "https://www.natgeomedia.com"
-_NIKKEI_RSS = "https://cn.nikkei.com/rss.html"
 _SCIENCENET = "https://news.sciencenet.cn/"
 _CBN_LIST = "https://api.cbnweek.com/v5/first_page_infos"
 _CBN_PER, _CBN_PAGE = 8, 1  # 首页组件 data(){page:1, per:8}
@@ -97,7 +84,6 @@ type_map: dict[str, str] = {
     "lifeweek-cover": "三联生活周刊 · 封面故事",
     "natgeo-latest": "國家地理雜誌中文網 · 最新探索",
     "natgeo-env-articles": "國家地理雜誌中文網 · 環境與保育 文章總匯",
-    "nikkei-latest": "日经中文网 · 每日最新",
     "sciencenet-top": "科学网 · 首页头条",
     "sciencenet-yaowen": "科学网 · 首页要闻",
     "cbnweek-home": "第一财经杂志 · 首页推荐",
@@ -109,7 +95,7 @@ ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "杂志与人文网站",
     "description": (
-        "FT中文网、三联生活周刊、國家地理雜誌中文網、日经中文网、科学网、第一财经杂志、"
+        "FT中文网、三联生活周刊、國家地理雜誌中文網、科学网、第一财经杂志、"
         "哈佛商业评论、环球科学的首页区块、栏目列表与官方 RSS"
     ),
     "link": _FT + "/",
@@ -345,61 +331,6 @@ async def _fetch_natgeo(board: str, no_cache: bool) -> tuple[RequestResult, list
     return result, items
 
 
-# ---------------------------------------------------------------- 日经中文网
-
-
-def _nikkei_ts(url: str) -> int | None:
-    """链接 /<数字>-YYYY-MM-DD-hh-mm-ss.html 里的时刻,按北京时间解释(时区未经原站确认)。"""
-    match = re.search(r"/\d+-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})\.html", url)
-    if not match:
-        return None
-    year, month, day, hour, minute, second = (int(part) for part in match.groups())
-    try:
-        moment = datetime(year, month, day, hour, minute, second, tzinfo=_BEIJING)
-    except ValueError:
-        return None
-    return int(moment.timestamp())
-
-
-async def _fetch_nikkei(no_cache: bool) -> tuple[RequestResult, list[ListItem], str | None]:
-    note = None
-    try:
-        result = await get(
-            url=_NIKKEI_RSS,
-            headers={"User-Agent": _BROWSER_UA},
-            no_cache=no_cache,
-            response_type="text",
-        )
-        feed = parse_feed(str(result.data))
-    except httpx.HTTPStatusError:
-        # CloudFront 缓存的"系统维护"403 页:带时间戳查询串重取一次(分析阶段实测根路径
-        # 带查询串即 200),仍失败就报错
-        result = await get(
-            url=f"{_NIKKEI_RSS}?_={int(time.time())}",
-            headers={"User-Agent": _BROWSER_UA},
-            no_cache=True,
-            response_type="text",
-        )
-        feed = parse_feed(str(result.data))
-        note = "rss.html 返回了维护页，已带查询串重取"
-    items: list[ListItem] = []
-    for entry in feed:
-        url = re.sub(r"^http://", "https://", entry.url)  # 站点强制 HTTPS(HSTS),RSS 里是 http
-        items.append(
-            ListItem(
-                id=url,
-                title=entry.title,
-                url=url,
-                mobileUrl=url,
-                desc=entry.desc,
-                timestamp=get_time(_nikkei_ts(url)),  # pubDate 是生成时间,不用
-            )
-        )
-    if not items:
-        raise RuntimeError("Nikkei RSS parsed no items")
-    return result, items, note
-
-
 # ---------------------------------------------------------------- 科学网
 
 
@@ -607,8 +538,6 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         result, data = await _fetch_lifeweek(no_cache)
     elif selected.startswith("natgeo-"):
         result, data = await _fetch_natgeo(selected, no_cache)
-    elif selected == "nikkei-latest":
-        result, data, message = await _fetch_nikkei(no_cache)
     elif selected.startswith("sciencenet-"):
         result, data = await _fetch_sciencenet(selected, no_cache)
     elif selected == "cbnweek-home":

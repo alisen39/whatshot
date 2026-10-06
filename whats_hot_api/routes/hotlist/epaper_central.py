@@ -4,7 +4,7 @@
 公开页面、无签名、无 cookie、无需登录):每个子榜是一份报纸(或期刊)当期(最近一期)
 全部版面的文章,按版面顺序、版内文章顺序输出;desc 是"第 N 版 版名"(期刊是栏目名),
 timestamp 是出版日期北京时间 0 点;当天没有出版或还没上传时取最近一期,message 写明
-期数日期。17 个子榜覆盖 18 个 backlog 行——人民网"电子版"与人民日报"电子报"是原站
+期数日期。原 17 个子榜覆盖 18 个 backlog 行(工人日报已因上游不可达下线,现存 16 个)——人民网"电子版"与人民日报"电子报"是原站
 同一份(paper.people.com.cn/rmrb),共用 people-rmrb。
 
 入口一律按原站现在的电子版取(tophub 节点大多停在改版前的旧格式):
@@ -16,8 +16,7 @@ timestamp 是出版日期北京时间 0 点;当天没有出版或还没上传时
   新华每日电讯(首版页 .listdaohang 一页列出全期)
 - 专用:解放军报(rmt-zuul.81.cn newestPaper → www.81.cn 当期 index.json,列表页 JS
   渲染,文章页地址照 list.js 拼)、科技日报(新平台免登录 uv 接口,POST JSON 三步,
-  必须带 x-requested-with: XMLHttpRequest)、工人日报(index.html 的 PAPER_DATE + 每版
-  page.html)、中国科学报(图形版页取期 id → 文字版目录页)、军事记者/国防教育
+  必须带 x-requested-with: XMLHttpRequest)、中国科学报(图形版页取期 id → 文字版目录页)、军事记者/国防教育
   (中国军网期刊列表页取期号最大的一期 → 该期目录页;无单一出版日期,timestamp 留空)
 不做:环球时报英文版电子报——入口跳付费订阅平台、免费试读也要登录
 (board_api evidence/90_globaltimes_*)。
@@ -63,7 +62,6 @@ type_map: dict[str, str] = {
     "jjckb-jjckb": "经济参考报",
     "legaldaily-fzrb": "法治日报",
     "mrdx-mrdx": "新华每日电讯",
-    "workercn-grrb": "工人日报",
     "sciencenet-zgkxb": "中国科学报",
     "stdaily-kjrb": "科技日报",
     "stdaily-kpsb": "科普时报",
@@ -256,40 +254,6 @@ async def _fetch_kjrb(f: EpaperFetch) -> Issue:
     return Issue(date.fromisoformat(day_s), pages)
 
 
-# ---------------------------------------------------------------- 工人日报
-
-_GRRB_INDEX = "https://www.workercn.cn/papers/grrb/index.html"
-
-
-async def _fetch_grrb(f: EpaperFetch) -> Issue:
-    """自有系统:index.html 的 PAPER_DATE 是最新一期,#pageUrl 列出各版 page.html,
-    每版 #pageTitle 列出本版文章。版面导航只有版号(01、02…),没有版名。"""
-    base, text = await f.page(_GRRB_INDEX)
-    m = re.search(r'PAPER_DATE\s*=\s*"(\d{4})-(\d{2})-(\d{2})"', text)
-    if not m:
-        raise RuntimeError("epaper-central 工人日报 index.html 没有 PAPER_DATE")
-    day = date.fromisoformat(m.group(1))
-    day_dir = f"/papers/grrb/{m.group(1)}/{m.group(2)}/{m.group(3)}/"
-    soup = BeautifulSoup(text, "lxml")
-    nav = [
-        (urljoin(base, attr_of(a, "href")), tag_text(a))
-        for a in soup.select("#pageUrl a")
-        if attr_of(a, "href").endswith("page.html") and day_dir in attr_of(a, "href")
-    ]
-    if not nav:
-        raise RuntimeError("epaper-central 工人日报 index.html 没有版面导航 #pageUrl")
-    pages: list[PaperPage] = []
-    for url, label in nav:
-        page_url, page_text = await f.page(url)
-        page = PaperPage(label, "")
-        for a in BeautifulSoup(page_text, "lxml").select("#pageTitle a"):
-            href = urljoin(page_url, attr_of(a, "href"))
-            if re.search(r"/news-\d+\.html$", href) and tag_text(a):
-                page.articles.append(Article(title=tag_text(a), url=href))
-        pages.append(page)
-    return Issue(day, pages)
-
-
 # ---------------------------------------------------------------- 中国科学报
 
 _ZGKXB_PHOTO = "https://news.sciencenet.cn/dz/dznews_photo.aspx"
@@ -336,8 +300,6 @@ async def _fetch_board(board: str, f: EpaperFetch) -> Issue:
         return await _fetch_jfjb(f)
     if board == "stdaily-kjrb":
         return await _fetch_kjrb(f)
-    if board == "workercn-grrb":
-        return await _fetch_grrb(f)
     if board == "sciencenet-zgkxb":
         return await _fetch_zgkxb(f)
     if board in _SYSTEM_A:

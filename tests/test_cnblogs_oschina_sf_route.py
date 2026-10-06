@@ -10,8 +10,8 @@ from whats_hot_api.utils.http_client import RequestResult
 
 UPDATE_TIME = "2026-10-01T00:00:00+00:00"
 
-# fixtures 按 board_api 证据(evidence/01_cnb_topdiggs、06_cnb_sitehome_rss、09_osc_news_page、
-# 10_osc_project_recommend、12_sf_channel_backend、13_sf_home_1)的结构净化内联,只取字段骨架。
+# fixtures 按 board_api 证据(evidence/01_cnb_topdiggs、06_cnb_sitehome_rss、
+# 10_osc_project_recommend)的结构净化内联,只取字段骨架。
 
 _CNBLOGS_PAGE = """
 <div id="post_list">
@@ -53,26 +53,6 @@ _SITEHOME_ATOM = """<?xml version="1.0" encoding="utf-8"?>
 </feed>
 """
 
-_OSC_NEWS_PAGE = """
-<div id="right-box">
-  <div class="ui items">
-    <h3 class="ui header news-right-header">热门资讯</h3>
-    <div class="item">
-      <div class="hot-num"><a class="ui circular small label type1">1</a></div>
-      <div class="content">
-        <a class="header" href="https://www.oschina.net/news/502660">有人拿 Jev 给聊天软件配了个 AI 副驾</a>
-      </div>
-    </div>
-    <div class="item">
-      <div class="hot-num"><a class="ui circular small label type2">2</a></div>
-      <div class="content">
-        <a class="header" href="https://www.oschina.net/news/502646/ms-agentically">微软工程师花 12 万美元让 AI 重写 Copilot 运行时</a>
-      </div>
-    </div>
-  </div>
-</div>
-"""
-
 _OSC_PROJECT_OK = json.dumps(
     {
         "success": True,
@@ -95,34 +75,6 @@ _OSC_PROJECT_OK = json.dumps(
     },
     ensure_ascii=False,
 )
-
-
-def _sf_page(state: dict) -> str:
-    payload = {"props": {"pageProps": {"initialState": state}}}
-    return (
-        "<html><body><script id=\"__NEXT_DATA__\" type=\"application/json\">"
-        + json.dumps(payload, ensure_ascii=False)
-        + "</script></body></html>"
-    )
-
-
-_SF_BACKEND_ROW = {
-    "id": 1190000048307166,
-    "title": "设备管理系统为什么总变成新的数据孤岛？",
-    "url": "/a/1190000048307166",
-    "created": 1789889084,
-    "votes": 6,
-    "cover": "/img/bVdoqJD?spec=cover160",
-    "user": {"name": "葡萄城技术团队"},
-}
-
-_SF_ASIDE_ROW = {
-    "title": "推荐位文章没有 id 字段",
-    "url": "/a/1190000048309999",
-    "created": 1789000000,
-    "cover": None,
-    "user": {"name": "某作者"},
-}
 
 
 def _request(board: str | None = None) -> Request:
@@ -226,20 +178,6 @@ async def test_cnblogs_empty_page_without_marker_is_an_error(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_osc_hot_news_uses_news_id(monkeypatch):
-    fake_get = _fake_get(_OSC_NEWS_PAGE, url="https://www.oschina.net/news")
-    monkeypatch.setattr(cnblogs_oschina_sf, "get", fake_get)
-
-    result = await cnblogs_oschina_sf.handle_route(_request("oschina-hot-news"), no_cache=True)
-
-    assert result.title == "开源中国"
-    assert result.link == "https://www.oschina.net/news"
-    assert [item.id for item in result.data] == ["502660", "502646"]
-    assert result.data[0].title == "有人拿 Jev 给聊天软件配了个 AI 副驾"
-    assert result.data[1].url == "https://www.oschina.net/news/502646/ms-agentically"
-
-
-@pytest.mark.asyncio
 async def test_osc_project_query_maps_fields(monkeypatch):
     fake_get = _fake_get(
         json.loads(_OSC_PROJECT_OK),
@@ -283,54 +221,13 @@ async def test_osc_project_error_shell_is_rejected(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_sf_backend_maps_votes_and_seconds_timestamp(monkeypatch):
-    page = _sf_page({"blogs": {"articles": {"rows": [_SF_BACKEND_ROW]}}})
-    fake_get = _fake_get(page, url="https://segmentfault.com/channel/backend")
-    monkeypatch.setattr(cnblogs_oschina_sf, "get", fake_get)
-
-    result = await cnblogs_oschina_sf.handle_route(_request("sf-backend"), no_cache=True)
-
-    assert result.title == "SegmentFault"
-    assert result.link == "https://segmentfault.com/channel/backend"
-    item = result.data[0]
-    assert item.id == "1190000048307166"
-    assert item.url == "https://segmentfault.com/a/1190000048307166"
-    assert item.hot == 6  # votes(点赞)
-    assert item.author == "葡萄城技术团队"
-    assert item.cover == "https://segmentfault.com/img/bVdoqJD?spec=cover160"  # 相对地址补全
-    assert item.timestamp == 1789889084000  # created 秒 → 毫秒
-
-
-@pytest.mark.asyncio
-async def test_sf_aside_uses_article_number_as_id(monkeypatch):
-    page = _sf_page({"global": {"asidesData": {"articles": [_SF_ASIDE_ROW]}}})
-    fake_get = _fake_get(page, url="https://segmentfault.com/")
-    monkeypatch.setattr(cnblogs_oschina_sf, "get", fake_get)
-
-    result = await cnblogs_oschina_sf.handle_route(_request("sf-recommend"), no_cache=True)
-
-    item = result.data[0]
-    # 侧栏没有 id 字段,取链接里的文章号;推荐文章没有热度
-    assert item.id == "1190000048309999"
-    assert item.hot is None
-    assert item.timestamp == 1789000000000
-
-
-@pytest.mark.asyncio
-async def test_sf_page_without_next_data_is_an_error(monkeypatch):
-    fake_get = _fake_get("<html><body>login wall</body></html>", url="https://segmentfault.com/channel/backend")
-    monkeypatch.setattr(cnblogs_oschina_sf, "get", fake_get)
-
-    with pytest.raises(RuntimeError, match="__NEXT_DATA__"):
-        await cnblogs_oschina_sf.handle_route(_request("sf-backend"), no_cache=True)
-
-
-@pytest.mark.asyncio
 async def test_unknown_board_is_rejected():
     with pytest.raises(ValueError, match="Unknown board 'cnblogs-hot'"):
         await cnblogs_oschina_sf.handle_route(_request("cnblogs-hot"), no_cache=True)
 
 
-def test_type_map_declares_all_thirteen_boards():
-    assert len(cnblogs_oschina_sf.type_map) == 13
+def test_type_map_declares_all_eight_boards():
+    assert len(cnblogs_oschina_sf.type_map) == 8
+    removed = {"oschina-hot-news", "oschina-latest-info", "oschina-latest-news", "sf-backend", "sf-recommend"}
+    assert removed.isdisjoint(cnblogs_oschina_sf.type_map)
     assert next(iter(cnblogs_oschina_sf.type_map)) == "cnblogs-sitehome"

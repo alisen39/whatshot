@@ -1,6 +1,6 @@
-"""央视网栏目：电视节目往期列表、新闻频道、NBA 热门资讯（多 type 单路由）。
+"""央视网栏目：电视节目往期列表、新闻频道（多 type 单路由）。
 
-迁移自 board_api cctv_programs 单元（11 个已完成榜），三类数据源都是原站页面自己用的数据：
+迁移自 board_api cctv_programs 单元（11 个已完成榜；NBA 热门资讯已因上游不可达下线），两类数据源都是原站页面自己用的数据：
 - 电视节目（tv.cctv.com/lm/<栏目>/，7 个子榜）：栏目页 JS 调的官方接口
   ``api.cntv.cn/NewVideo/getVideoListByColumn?id=<栏目 id>&n=<条数>&sort=desc&p=1
   &mode=<类型>&serviceId=tvcctv``，不带 cb 回调直接回 JSON。栏目 id 照栏目页源码的
@@ -15,12 +15,8 @@
   ``news.cctv.com/2019/07/gaiban/cmsdatainterface/page/<频道>_1.jsonp``（频道页源码
   jsonpurl 声明，每个文件 80 条，页面每次显示 20 条是前端切片）。头图在列表里时留页面
   先出现的位置（头图优先），不在列表里时该条没有发布时间（timestamp 留空，不从链接日期编造）
-- NBA 热门资讯（sports.cctv.com/nba/）：页面内嵌置顶条（``var obj_data``，JS 对象字面量、
-  单引号，多数时候是空数组）+ 数据文件 ``nba_remen_1.jsonp``（100 条）。页面脚本 zhiding.js
-  把图集（id 为 PHOA…）从列表里拿出来，每 4 条非图集后插 1 个图集；循环结束后剩下的图集
-  只在"剩余不止 1 个"时追加（原文 ``if (photoNum < photoArray.length - 1)``），照这个规则排
 - 节目 timestamp 用播出时间 ``time``（北京时间，栏目页显示的就是它），缺失时用上线时间
-  ``focus_date``（毫秒）；新闻 / NBA 用 ``focus_date``。统一毫秒输出
+  ``focus_date``（毫秒）；新闻用 ``focus_date``。统一毫秒输出
 
 不做：致富经（2023-05-21 改版更名为《共富经》，原站另建新栏目、旧栏目页不跳转、栏目信息
 接口标"已停播"，列表停在 2023-05-19；board_api README 与推翻性验证修正记录维持不做）。
@@ -46,7 +42,6 @@ _TYPE_MAP: dict[str, str] = {
     "news-china": "国内新闻",
     "news-world": "国际新闻",
     "news-law": "法治新闻",
-    "sports-nba": "NBA 热门资讯",
     "tv-jrsf": "今日说法",
     "tv-xinwen1j1": "新闻1+1",
     "tv-xwdc": "新闻调查",
@@ -61,7 +56,7 @@ _DEFAULT_TYPE = "news-china"
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "央视网",
-    "description": "央视网：今日说法、新闻1+1、焦点访谈等节目往期列表，国内 / 国际 / 法治新闻，NBA 热门资讯。",
+    "description": "央视网：今日说法、新闻1+1、焦点访谈等节目往期列表，国内 / 国际 / 法治新闻。",
     "link": "https://www.cctv.com/",
     "params": {"type": {"name": "栏目", "type": _TYPE_MAP}},
 }
@@ -101,9 +96,6 @@ _NEWS_PAGES: dict[str, tuple[str, str]] = {
 }
 _NEWS_DATA_URL = "https://news.cctv.com/2019/07/gaiban/cmsdatainterface/page/{name}_1.jsonp"
 
-_NBA_PAGE = "https://sports.cctv.com/nba/"
-_NBA_DATA_URL = "https://sports.cctv.com/2019/07/gaiban/cmsdatainterface/page/nba_remen_1.jsonp"
-
 _JSONP_CALL = re.compile(r"\s*[\w$.]+\((.*)\)\s*;?\s*$", re.DOTALL)
 
 
@@ -113,10 +105,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         raise ValueError(f"Unknown board '{board}' for route '{ROUTE_NAME}'")
     if board in _PROGRAMS:
         result, link, items = await _get_program(board, no_cache)
-    elif board in _NEWS_PAGES:
-        result, link, items = await _get_news(board, no_cache)
     else:
-        result, link, items = await _get_nba(no_cache)
+        result, link, items = await _get_news(board, no_cache)
     if not items:
         raise RuntimeError(f"cctv-programs board '{board}' returned no items")
     return RouterData(
@@ -157,7 +147,7 @@ def _item(row: dict[str, Any], time_key: str) -> ListItem | None:
         mobileUrl=url,  # 原站没有单独的移动链接
         cover=_https(str(row.get("image") or "")) or None,
         desc=(_clean_text(row.get("brief")) or "")[:500] or None,
-        # 节目用播出时间 time（北京时间），缺失时用上线时间 focus_date（毫秒）；新闻 / NBA 用 focus_date
+        # 节目用播出时间 time（北京时间），缺失时用上线时间 focus_date（毫秒）；新闻用 focus_date
         timestamp=get_time(row.get(time_key)) or get_time(row.get("focus_date")),
     )
 
@@ -188,7 +178,7 @@ def _data_rows(payload: Any, source: str) -> list[dict[str, Any]]:
 
 
 def _jsonp_payload(text: str) -> Any:
-    """去掉 JSONP 回调（china(...)、nba_remen(...)），接口直接回 JSON 时原样解析。"""
+    """去掉 JSONP 回调（china(...)），接口直接回 JSON 时原样解析。"""
     text = text.strip()
     match = _JSONP_CALL.match(text)
     return json.loads(match.group(1) if match else text)
@@ -258,62 +248,3 @@ async def _get_news(board: str, no_cache: bool) -> tuple[Any, str, list[ListItem
     # 头图在列表里时用列表里的完整字段（含发布时间），不在时保留头图自身字段（timestamp 为空）
     head = [listed.get(str(slide["id"]), slide) for slide in _news_slides(str(html_result.data), page)]
     return data_result, page, _dedupe([_item(row, "focus_date") for row in head + rows])
-
-
-# ---------------------------------------------------------------- NBA 热门资讯
-
-
-def _nba_pinned(html: str) -> list[dict[str, Any]]:
-    """页面内嵌的置顶条：``var obj_data = [{dataUrl: '…', dataTitle: '…', dataImg: '…'}, …]``。
-
-    zhiding.js 在"热门"页签第 1 页把它们放在列表最前（标"置顶"）。多数时候是空数组。
-    """
-    match = re.search(r"var\s+obj_data\s*=\s*\[(.*?)\];", html, re.DOTALL)
-    out: list[dict[str, Any]] = []
-    for body in re.findall(r"\{(.*?)\}", match.group(1), re.DOTALL) if match else []:
-        fields = {k: v.replace("\\'", "'") for k, v in re.findall(r"(\w+)\s*:\s*'((?:[^'\\]|\\.)*)'", body)}
-        url = fields.get("dataUrl", "").strip()
-        if url and fields.get("dataTitle"):
-            out.append(
-                {"id": _id_from_url(_https(url)), "url": _https(url), "title": fields["dataTitle"], "image": fields.get("dataImg", "")}
-            )
-    return out
-
-
-def _nba_order(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """照 zhiding.js 的 loadData：非图集按原顺序，每满 4 条插 1 个图集（PHOA）；
-    循环结束后剩下的图集只在"剩余不止 1 个"时追加（原文 ``if (photoNum < photoArray.length - 1)``）。"""
-    photos = [x for x in rows if "PHOA" in str(x.get("id"))]
-    others = [x for x in rows if "PHOA" not in str(x.get("id"))]
-    out: list[dict[str, Any]] = []
-    used = 0
-    for i, x in enumerate(others):
-        out.append(x)
-        if i % 4 == 3:
-            if used < len(photos):
-                out.append(photos[used])
-            used += 1
-    if used < len(photos) - 1:
-        out += photos[used:]
-    return out
-
-
-async def _get_nba(no_cache: bool) -> tuple[Any, str, list[ListItem]]:
-    html_result = await get(
-        url=_NBA_PAGE,
-        headers={**_HEADERS, "Accept": _HTML_ACCEPT},
-        no_cache=no_cache,
-        response_type="text",
-        cache_key=f"{ROUTE_NAME}:sports-nba:page",
-    )
-    data_result = await get(
-        url=_NBA_DATA_URL,
-        headers={**_HEADERS, "Accept": _JSON_ACCEPT},
-        no_cache=no_cache,
-        cache_key=f"{ROUTE_NAME}:sports-nba:data",
-    )
-    rows = _data_rows(_jsonp_payload(str(data_result.data)), "sports-nba")
-    listed = {str(row.get("id")): row for row in rows}
-    head = [listed.get(str(pinned["id"]), pinned) for pinned in _nba_pinned(str(html_result.data))]
-    items = _dedupe([_item(row, "focus_date") for row in head + _nba_order(rows)])
-    return data_result, _NBA_PAGE, items

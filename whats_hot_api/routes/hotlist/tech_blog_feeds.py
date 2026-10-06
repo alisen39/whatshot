@@ -1,7 +1,8 @@
 """技术博客与 newsletter feed(官方 RSS/Atom、dev.to Top 榜,以及多个站点栏目页;公开,不登录、无 cookie)。
 
 board_api 单元 `tmp/board_api/tech_blog_feeds` 的 1:1 迁移,证据见该目录 README、
-`analysis_report.md`、`verify/min_request.log`、`verify/selfcheck.md`。28 个子榜
+`analysis_report.md`、`verify/min_request.log`、`verify/selfcheck.md`。原 28 个子榜
+(Product Hunt 已因上游不可达下线,现存 27 个)
 (子榜键照 board_api;dev.to Week 是 board_api DEFAULT_TYPE,声明序第一):
 
 - 官方 RSS / Atom 17 个(Substack、Medium、Jekyll、WordPress 等):保留 feed 原顺序,
@@ -11,10 +12,8 @@ board_api 单元 `tmp/board_api/tech_blog_feeds` 的 1:1 迁移,证据见该目�
   "Infinity" 用页面同源接口 /stories/feed/infinity?page=1(一页 18 条);top=N 的前
   18 条与 stories 同榜逐条相同(page_vs_output.md)。top=1(既有 devto 路由)与
   top=7 只重合 1 条,不是同一个榜;desc 拼法与 devto 路由 _article_item 一致
-- HTML / 页面内嵌数据 7 个:
+- HTML / 页面内嵌数据 6 个:
   - anond 人気記事アーカイブ:ul.archives 按日分组,日记 id 就是日本时间发布时刻
-  - Product Hunt 首页"Top Products Launching Today"Apollo SSR 区块(Ad 广告跳过);
-    "今天"按美西时间换天,区块里给几条输出几条
   - Indie Hackers 首页 div.homepage > div.organic(社区帖默认热门列表);
     featured / newest / Build Board 不算
   - 数据库内核月报目录页:一页列出全部期数,新的在前;只有年月,timestamp 留空
@@ -37,7 +36,6 @@ board_api 单元 `tmp/board_api/tech_blog_feeds` 的 1:1 迁移,证据见该目�
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
@@ -101,7 +99,6 @@ type_map: dict[str, str] = {
     "devto-top-year": f"{_DEVTO} · Top · Year",
     "devto-top-infinity": f"{_DEVTO} · Top · Infinity",
     "ruanyifeng-weekly": "阮一峰的网络日志 · 科技爱好者周刊",
-    "producthunt-today": "Product Hunt · Top Products Launching Today",
     "indiehackers-home": "Indie Hackers · 首页热门",
     "anond-popular": "はてな匿名ダイアリー · 人気記事アーカイブ",
     "mysql-monthly": "数据库内核月报 · 全部期刊",
@@ -130,7 +127,7 @@ ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "技术博客与 newsletter feed",
     "description": (
-        "技术博客、newsletter、播客的官方 feed,dev.to Top 榜,以及 Product Hunt、"
+        "技术博客、newsletter、播客的官方 feed,dev.to Top 榜,以及 "
         "Indie Hackers、anond、数据库内核月报、JavaScript Weekly、遥感学报、阮一峰周刊的栏目页"
     ),
     "link": "https://dev.to/top/week",
@@ -163,15 +160,6 @@ def _int(value: Any) -> int | None:
 
 def _soup(page_html: str) -> BeautifulSoup:
     return BeautifulSoup(page_html, "lxml")
-
-
-def _iso_seconds(value: Any) -> int | None:
-    """ISO 8601(含 Z / 时区偏移)→ 秒;models 层统一 ×1000 归一化毫秒。"""
-    try:
-        # Python 3.11+ 的 fromisoformat 直接识别 "Z" 后缀
-        return int(datetime.fromisoformat(str(value or "").strip()).timestamp())
-    except ValueError:
-        return None
 
 
 def _zone_date_seconds(value: str, fmt: str, zone: timezone) -> int | None:
@@ -266,55 +254,6 @@ def _anond_items(page_html: str) -> list[ListItem]:
                 url=url,
                 mobileUrl=url,
                 timestamp=get_time(_zone_date_seconds(match.group(1), "%Y%m%d%H%M%S", _JST)),
-            )
-        )
-    return items
-
-
-# ---------------------------------------------------------------- Product Hunt
-
-
-def _js_array_after(text: str, start: int) -> list[Any]:
-    """从 start 处的 JS 数组字面量解出 JSON(Apollo SSR 数据里夹着 undefined,换成 null)。"""
-    chunk = re.sub(r"(?<=[:\[,])undefined(?=[,\]}])", "null", text[start:start + 3_000_000])
-    value, _ = json.JSONDecoder().raw_decode(chunk)
-    return value if isinstance(value, list) else []
-
-
-def _producthunt_items(page_html: str) -> list[ListItem]:
-    """首页 Apollo SSR 数据里 title 为 "Top Products Launching Today" 的区块,
-    items[] 里 __typename=Post 的是产品(Ad 是广告,跳过);服务端给几条输出几条。"""
-    key = '"title":"Top Products Launching Today"'
-    pos = page_html.find(key)
-    if pos < 0:
-        raise RuntimeError("Product Hunt homepage has no 'Top Products Launching Today' block (page changed)")
-    arr_at = page_html.find('"items":[', pos)
-    if arr_at < 0 or arr_at - pos > 5000:
-        raise RuntimeError("Product Hunt 'Top Products Launching Today' block has no items array")
-    items: list[ListItem] = []
-    for row in _js_array_after(page_html, arr_at + len('"items":')):
-        if not isinstance(row, dict) or row.get("__typename") != "Post" or not row.get("name"):
-            continue
-        product = row.get("product") if isinstance(row.get("product"), dict) else {}
-        slug = product.get("slug")
-        url = (
-            f"https://www.producthunt.com/products/{slug}"
-            if slug
-            else f"https://www.producthunt.com/posts/{row.get('slug')}"
-        )
-        if not url.startswith("https://") or not url.rstrip("/").rsplit("/", 1)[-1]:
-            continue
-        thumb = row.get("thumbnailImageUuid")
-        items.append(
-            ListItem(
-                id=str(row.get("id") or url),
-                title=_clean(row["name"]),
-                url=url,
-                mobileUrl=url,
-                desc=_clean(row.get("tagline")) or None,
-                cover=f"https://ph-files.imgix.net/{thumb}" if thumb else None,
-                hot=row.get("latestScore"),
-                timestamp=get_time(_iso_seconds(row.get("featuredAt") or row.get("createdAt"))),
             )
         )
     return items
@@ -563,14 +502,12 @@ async def _fetch_devto_stories(no_cache: bool) -> tuple[Any, list[ListItem], str
 async def _fetch_html(board: str, no_cache: bool) -> tuple[Any, list[ListItem], str]:
     url = {
         "anond-popular": "https://anond.hatelabo.jp/archive",
-        "producthunt-today": "https://www.producthunt.com/",
         "indiehackers-home": "https://www.indiehackers.com/",
         "mysql-monthly": "http://mysql.taobao.org/monthly/",
     }[board]
     result = await get(url=url, no_cache=no_cache, response_type="text")
     parse = {
         "anond-popular": _anond_items,
-        "producthunt-today": _producthunt_items,
         "indiehackers-home": _indiehackers_items,
         "mysql-monthly": _mysql_monthly_items,
     }[board]

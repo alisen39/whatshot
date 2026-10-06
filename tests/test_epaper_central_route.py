@@ -382,5 +382,6 @@ def test_route_meta_declares_all_types_in_order():
     types = epaper_central.ROUTE_META["params"]["type"]["type"]
     assert list(types) == list(epaper_central.type_map)
     assert next(iter(types)) == epaper_central.DEFAULT_TYPE
-    assert len(types) == 17
+    assert len(types) == 16
+    assert "workercn-grrb" not in types
     assert json.dumps(types, ensure_ascii=False)  # 可序列化

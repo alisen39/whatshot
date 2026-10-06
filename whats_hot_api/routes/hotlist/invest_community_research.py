@@ -1,6 +1,6 @@
-"""投资社区与研究报告：雪球、集思录、艾瑞咨询、QuestMobile、Counterpoint（多站点，type=站点-栏目）。
+"""投资社区与研究报告：雪球、集思录、QuestMobile、Counterpoint（多站点，type=站点-栏目）。
 
-迁移自 board_api invest_community_research 单元（7 个已完成榜），每个子榜 1~2 个请求：
+迁移自 board_api invest_community_research 单元（7 个已完成榜；艾瑞咨询 2 个已因上游不可达下线），每个子榜 1~2 个请求：
 - 雪球「今日话题」：站内标题为「今日话题」的组件（全部/沪深/美股/港股，"更多"链到 /today）
   请求 ``GET /v4/statuses/public_timeline_by_category.json?since_id=-1&max_id=-1&category=0``
   （「全部」），不带 count 时接口一页 20 条。接口要访客 cookie ``xq_a_token``：先 GET 首页，
@@ -11,9 +11,6 @@
   可能为空，输出 0 条 + message）；「社区最新」=「按发表时间」tab（``category-__sort_type-add_time``）。
   服务端渲染 ``div.aw-question-list``；列表行是"<用户> 发起/回复 • 时间 • N 次浏览"，
   「回复」行的时间与人是最后回复信息（不是发布时间），author/timestamp 留空
-- 艾瑞咨询：研究报告页 report.shtml 的两个 tab，``GetReportList``（最新）/``GetHotReportList``
-  （热门），classId=&fee=0&date=&lastId=&pageSize=12。fee=0 对「最新报告」必需（去掉返回 0 条），
-  对「热门报告」非必需（照页面带上）；热门报告不带 pageSize 只有 6 条
 - QuestMobile：``GET /api/v2/report/article-list?version=0&pageSize=6&pageNo=1&industryId=-1&labelId=-1``，
   与页面 SSR（QuestMobile-state）同参数同结果，code=100200
 - Counterpoint：旧站 china.counterpointresearch.com 已整站 301 到 counterpointresearch.com/cn，
@@ -45,8 +42,6 @@ _TYPE_MAP: dict[str, str] = {
     "xueqiu-today": "雪球 · 今日话题",
     "jisilu-hot-today": "集思录 · 今日热门榜（热门 · 当天）",
     "jisilu-latest": "集思录 · 社区最新（按发表时间）",
-    "iresearch-hot": "艾瑞咨询 · 热门报告",
-    "iresearch-latest": "艾瑞咨询 · 最新报告",
     "questmobile-reports": "QuestMobile · 行业研究报告",
     "counterpoint-insights": "Counterpoint Research · 最新见解",
 }
@@ -56,7 +51,7 @@ _DEFAULT_TYPE = "xueqiu-today"
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "投资社区与研究报告",
-    "description": "雪球今日话题、集思录热门与最新、艾瑞咨询最新/热门报告、QuestMobile 行业研究报告、Counterpoint 最新见解。",
+    "description": "雪球今日话题、集思录热门与最新、QuestMobile 行业研究报告、Counterpoint 最新见解。",
     "link": "https://xueqiu.com/today",
     "params": {"type": {"name": "站点-栏目", "type": _TYPE_MAP}},
 }
@@ -239,55 +234,6 @@ async def _get_jisilu(board: str, no_cache: bool) -> dict:
     return _finish(result, items, message)
 
 
-# ---------------------------------------------------------------- 艾瑞咨询
-
-_IR_API = "https://www.iresearch.com.cn/api/products/"
-_IR_BOARDS = {"iresearch-latest": "GetReportList", "iresearch-hot": "GetHotReportList"}
-# 研究报告页 reportObj.query 的初值（两个 tab 共用）；fee=0 对 GetReportList 必需
-_IR_PARAMS = {"classId": "", "fee": "0", "date": "", "lastId": "", "pageSize": "12"}
-
-
-async def _get_iresearch(board: str, no_cache: bool) -> dict:
-    endpoint = _IR_BOARDS[board]
-    result = await get(
-        url=_IR_API + endpoint,
-        params=_IR_PARAMS,
-        headers={
-            **_BASE_HEADERS,
-            "Accept": _JSON_ACCEPT,
-            "Referer": "https://www.iresearch.com.cn/report.shtml",
-        },
-        no_cache=no_cache,
-        cache_key=f"{ROUTE_NAME}:{board}",
-    )
-    payload = result.data if isinstance(result.data, dict) else {}
-    rows = payload.get("List") if isinstance(payload.get("List"), list) else payload.get("list")
-    if payload.get("Status") != "success" or not isinstance(rows, list):
-        raise RuntimeError(f"iresearch {endpoint} returned non-success envelope: {str(payload)[:200]}")
-    items: list[ListItem] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        news_id = row.get("NewsId")
-        if not news_id:
-            continue
-        items.append(
-            ListItem(
-                id=str(news_id),
-                title=str(row.get("Title") or row.get("sTitle") or "").strip(),
-                # 页面卡片的链接（router-link /Detail/report?id=<NewsId>&isfree=0）；
-                # 接口的 VisitUrl 是旧版 report.iresearch.cn 的同一篇报告
-                url=f"https://www.iresearch.com.cn/Detail/report?id={news_id}&isfree=0",
-                hot=row.get("views"),
-                cover=row.get("SmallImg") or None,
-                author=row.get("Author") or None,
-                desc=_plain(row.get("Content")) or None,
-                timestamp=get_time(_beijing_sec(str(row.get("Uptime") or ""), "%Y/%m/%d %H:%M:%S")),
-            )
-        )
-    return _finish(result, items)
-
-
 # ---------------------------------------------------------------- QuestMobile
 
 _QM_API = "https://www.questmobile.com.cn/api/v2/report/article-list"
@@ -387,8 +333,6 @@ _FETCHERS = {
     "xueqiu-today": _get_xueqiu,
     "jisilu-hot-today": _get_jisilu,
     "jisilu-latest": _get_jisilu,
-    "iresearch-hot": _get_iresearch,
-    "iresearch-latest": _get_iresearch,
     "questmobile-reports": _get_questmobile,
     "counterpoint-insights": _get_counterpoint,
 }

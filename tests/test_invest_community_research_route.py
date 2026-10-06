@@ -167,60 +167,6 @@ async def test_jisilu_hot_today_allows_empty_but_broken_page_is_error(monkeypatc
         await route.handle_route(_request("jisilu-hot-today"), no_cache=True)
 
 
-# ---------------------------------------------------------------- 艾瑞咨询
-
-
-@pytest.mark.asyncio
-async def test_iresearch_latest_uses_page_query_and_maps_fields(monkeypatch):
-    captured = {}
-
-    async def fake_get(url, headers=None, params=None, no_cache=None, **kwargs):
-        captured.update({"url": url, "params": params})
-        return RequestResult(
-            False,
-            _UPDATE_TIME,
-            {
-                "Status": "success",
-                "List": [
-                    {
-                        "NewsId": 4869,
-                        "Title": "Hedge Resilience Index（HRI）White Paper",
-                        "views": 5980,
-                        "SmallImg": "https://pic.iresearch.cn/news/202609/a.png",
-                        "Author": "艾瑞咨询",
-                        "Content": "<p>报告摘要<b>加粗</b></p>",
-                        "Uptime": "2026/09/16 10:00:00",
-                    }
-                ],
-            },
-        )
-
-    monkeypatch.setattr(route, "get", fake_get)
-    result = await route.handle_route(_request("iresearch-latest"), no_cache=True)
-
-    assert captured["url"] == "https://www.iresearch.com.cn/api/products/GetReportList"
-    # 页面 reportObj.query 初值；fee=0 必需（去掉 GetReportList 返回 0 条）
-    assert captured["params"] == {"classId": "", "fee": "0", "date": "", "lastId": "", "pageSize": "12"}
-    item = result.data[0]
-    assert item.id == "4869"
-    assert item.url == "https://www.iresearch.com.cn/Detail/report?id=4869&isfree=0"  # 页面卡片链接
-    assert item.hot == 5980
-    assert item.cover == "https://pic.iresearch.cn/news/202609/a.png"
-    assert item.author == "艾瑞咨询"
-    assert item.desc == "报告摘要 加粗"
-    assert item.timestamp == int(datetime(2026, 9, 16, 10, 0, 0, tzinfo=_CHINA_TZ).timestamp()) * 1000
-
-
-@pytest.mark.asyncio
-async def test_iresearch_error_shell_is_rejected(monkeypatch):
-    async def fake_get(url, headers=None, params=None, no_cache=None, **kwargs):
-        return RequestResult(False, _UPDATE_TIME, {"Status": "fail", "Msg": "error"})
-
-    monkeypatch.setattr(route, "get", fake_get)
-    with pytest.raises(RuntimeError, match="non-success envelope"):
-        await route.handle_route(_request("iresearch-hot"), no_cache=True)
-
-
 # ---------------------------------------------------------------- QuestMobile
 
 
@@ -313,5 +259,6 @@ async def test_unknown_board_is_rejected():
 
 
 def test_type_map_declares_all_boards():
-    assert len(route._TYPE_MAP) == 7
+    assert len(route._TYPE_MAP) == 5
+    assert {"iresearch-hot", "iresearch-latest"}.isdisjoint(route._TYPE_MAP)
     assert next(iter(route._TYPE_MAP)) == "xueqiu-today"  # 声明序第一个是默认榜

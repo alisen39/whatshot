@@ -81,29 +81,12 @@ async def test_s1_latest_empty_rss_is_an_error(monkeypatch):
         await game_digital_forums.handle_route(_request("s1-latest"), no_cache=True)
 
 
-_FLYERT_PAGE = """<html><body><tbody id="normalthread_4868908"><tr>
-<td><span class="comiis_common"><em><a>飞客讨论</a></em><a href="forum.php?mod=viewthread&amp;tid=4868908">飞客热帖标题</a></span></td>
-<div class="cl"><span class="y"><a>最后回复人</a></span><span class="y"><em>350</em><em>20</em></span><span class="y"><a>发帖人</a><span title="2026-9-30">昨天 22:55</span></span></div>
-</tr></tbody></body></html>"""
-
-
-@pytest.mark.asyncio
-async def test_flyert_guide_maps_fields(monkeypatch):
-    async def fake_get(url, no_cache=None, **kwargs):
-        return RequestResult(False, "t", _FLYERT_PAGE)
-
-    monkeypatch.setattr(game_digital_forums, "get", fake_get)
-    result = await game_digital_forums.handle_route(_request("flyert-hot"), no_cache=True)
-
-    item = result.data[0]
-    assert item.id == "4868908"
-    assert item.title == "飞客热帖标题"
-    assert item.hot == 350  # 查看/回复数中的第一个
-    assert item.desc == "飞客讨论"
-    assert item.timestamp is not None  # 悬停 title 当天 0 点(北京时间)
-
-
 @pytest.mark.asyncio
 async def test_unknown_board_is_rejected():
     with pytest.raises(ValueError, match="Unknown board"):
         await game_digital_forums.handle_route(_request("nga-xxx"), no_cache=True)
+
+
+def test_removed_boards_are_gone():
+    assert list(game_digital_forums.type_map) == ["s1-anime", "s1-game", "s1-latest"]
+    assert {"chiphell-hot", "flyert-hot"}.isdisjoint(game_digital_forums.ROUTE_META["params"]["type"]["type"])

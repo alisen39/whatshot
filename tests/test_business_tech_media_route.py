@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import UTC, datetime, timedelta, timezone
 
@@ -26,126 +25,6 @@ def _request(board_type: str) -> Request:
             "headers": [],
         }
     )
-
-
-def _kr_page(state: dict) -> str:
-    return (
-        "<!DOCTYPE html><html><head><title>36氪</title></head><body><script>"
-        f"window.initialState={json.dumps(state, separators=(',', ':'), ensure_ascii=False)}"
-        "</script></body></html>"
-    )
-
-
-def _kr_material_row(item_id: str, title: str, publish_ms: int, **extra) -> dict:
-    material = {"itemId": int(item_id), "widgetTitle": title, "publishTime": publish_ms, **extra}
-    return {"itemId": int(item_id), "templateMaterial": material}
-
-
-# ---------------------------------------------------------------- 36氪
-
-
-@pytest.mark.asyncio
-async def test_36kr_home_hotlist_maps_material_fields(monkeypatch):
-    captured = {}
-
-    async def fake_get(url, headers=None, params=None, no_cache=None, **kwargs):
-        captured.update({"url": url, "headers": headers, "no_cache": no_cache, "kwargs": kwargs})
-        state = {
-            "homeData": {
-                "data": {
-                    "hotlist": {
-                        "data": [
-                            _kr_material_row(
-                                "4001348750512260",
-                                "刚刚，Gemini 4 Pro全新曝光",
-                                1790496759863,
-                                widgetImage="https://img.36krcdn.com/a.jpg",
-                                authorName="硅星人",
-                                summary="实测来了",
-                            )
-                        ]
-                    }
-                }
-            }
-        }
-        return RequestResult(False, _UPDATE_TIME, _kr_page(state))
-
-    monkeypatch.setattr(route, "get", fake_get)
-    result = await route.handle_route(_request("36kr-24h"), no_cache=True)
-
-    assert captured["url"] == "https://36kr.com/"
-    assert captured["kwargs"]["response_type"] == "text"
-    assert captured["no_cache"] is True
-    item = result.data[0]
-    assert item.id == "4001348750512260"
-    assert item.title == "刚刚，Gemini 4 Pro全新曝光"
-    assert item.url == "https://www.36kr.com/p/4001348750512260"
-    assert item.mobileUrl == "https://m.36kr.com/p/4001348750512260"
-    assert item.cover == "https://img.36krcdn.com/a.jpg"
-    assert item.author == "硅星人"
-    assert item.desc == "实测来了"
-    assert item.hot is None  # 首页热榜不显示数值
-    assert item.timestamp == 1790496759863  # 上游毫秒原样
-
-
-@pytest.mark.asyncio
-async def test_36kr_zonghe_uses_beijing_date_and_stat_collect(monkeypatch):
-    class _FixedDatetime(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return datetime(2026, 9, 28, 8, 0, tzinfo=_CHINA_TZ)
-
-    monkeypatch.setattr(route, "datetime", _FixedDatetime)
-    captured = {}
-
-    async def fake_get(url, headers=None, params=None, no_cache=None, **kwargs):
-        captured["url"] = url
-        state = {
-            "hotListDetail": {
-                "articleList": {
-                    "itemList": [
-                        {  # 综合榜条目是扁平的
-                            "itemId": 4003891766038402,
-                            "widgetTitle": "综合榜文章",
-                            "publishTime": 1790555730457,
-                            "statCollect": 47,
-                        }
-                    ]
-                }
-            }
-        }
-        return RequestResult(False, _UPDATE_TIME, _kr_page(state))
-
-    monkeypatch.setattr(route, "get", fake_get)
-    result = await route.handle_route(_request("36kr-zonghe"), no_cache=True)
-
-    # 不带日期的 /hot-list/zonghe 是 404，目录页链到北京日期当天的第 1 页
-    assert captured["url"] == "https://36kr.com/hot-list/zonghe/2026-09-28/1"
-    item = result.data[0]
-    assert item.hot == 47  # 页面"N收藏"
-    assert item.timestamp == 1790555730457
-
-
-@pytest.mark.asyncio
-async def test_36kr_zonghe_allows_empty_after_midnight(monkeypatch):
-    async def fake_get(url, headers=None, params=None, no_cache=None, **kwargs):
-        return RequestResult(False, _UPDATE_TIME, _kr_page({"hotListDetail": {"articleList": {"itemList": []}}}))
-
-    monkeypatch.setattr(route, "get", fake_get)
-    result = await route.handle_route(_request("36kr-zonghe"), no_cache=True)
-    assert result.data == []
-    assert "综合榜为空" in (result.message or "")
-
-
-@pytest.mark.asyncio
-async def test_36kr_home_empty_is_an_error(monkeypatch):
-    async def fake_get(url, headers=None, params=None, no_cache=None, **kwargs):
-        state = {"homeData": {"data": {"hotlist": {"data": []}}}}
-        return RequestResult(False, _UPDATE_TIME, _kr_page(state))
-
-    monkeypatch.setattr(route, "get", fake_get)
-    with pytest.raises(RuntimeError, match="no items"):
-        await route.handle_route(_request("36kr-24h"), no_cache=True)
 
 
 def _tmt_fake(rows: list[dict], captured: dict):
@@ -459,6 +338,13 @@ async def test_unknown_board_is_rejected():
 
 
 def test_type_map_declares_all_boards():
-    assert len(route._TYPE_MAP) == 17
-    assert next(iter(route._TYPE_MAP)) == "36kr-24h"  # 声明序第一个是默认榜
+    assert len(route._TYPE_MAP) == 11
+    assert next(iter(route._TYPE_MAP)) == "tmtpost-nictation"  # 声明序第一个是默认榜
+    assert route._DEFAULT_TYPE == "tmtpost-nictation"
     assert route.ROUTE_META["params"]["type"]["type"] is route._TYPE_MAP
+
+
+def test_removed_36kr_boards_are_gone():
+    removed = {"36kr-24h", "36kr-ai", "36kr-contact", "36kr-recommend", "36kr-shenke", "36kr-zonghe"}
+    assert removed.isdisjoint(route._TYPE_MAP)
+    assert not any(key.startswith("36kr") for key in route._TYPE_MAP)

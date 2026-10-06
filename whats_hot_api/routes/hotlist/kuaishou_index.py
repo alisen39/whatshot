@@ -19,7 +19,6 @@ _BOARDS: dict[str, tuple[str, str, object]] = {
     "useful": ("有用榜", "hot-rank", 5),
     "challenge": ("挑战榜", "hot-rank", -1),
     "search-rising": ("搜索飙升榜", "search-rank", 100),
-    "drama-hot": ("短剧热播榜", "tube-rank", "topRank"),
     "drama-must": ("短剧必看榜", "tube-rank", "mustRank"),
 }
 
@@ -50,7 +49,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     if type_param not in _BOARDS:
         raise ValueError(f"Unknown board '{type_param}' for route '{ROUTE_NAME}'")
     label, endpoint, arg = _BOARDS[type_param]
-    list_data = await _get_list(type_param, label, endpoint, arg, no_cache)
+    list_data = await _get_list(label, endpoint, arg, no_cache)
     return RouterData(
         **ROUTE_META,
         type=label,
@@ -58,13 +57,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         fromCache=list_data["from_cache"],
         updateTime=list_data["update_time"],
         data=list_data["data"],
-        message=list_data.get("message"),
     )
 
 
-async def _get_list(
-    board: str, label: str, endpoint: str, arg: object, no_cache: bool
-) -> dict:
+async def _get_list(label: str, endpoint: str, arg: object, no_cache: bool) -> dict:
     url = f"{_API}{endpoint}"
     if endpoint == "hot-rank":
         # rankType 只能放 JSON 体里;放 URL 参数返回 -101,写错返回 100001"参数不合法"
@@ -77,26 +73,21 @@ async def _get_list(
             f"Kuaishou index {endpoint} returned code={payload.get('code')} message={payload.get('message')}"
         )
     data = payload.get("data")
-    message = None
     if endpoint == "tube-rank":
         rows = data.get(str(arg)) if isinstance(data, dict) else None
         if not isinstance(rows, list):
             raise RuntimeError(f"Kuaishou index tube-rank response has no '{arg}' list (feed changed)")
         items = _tube_items(rows)
-        # 只有短剧热播榜允许为空(条目很少);必看榜平时 10 条,为空按异常处理
-        if not items and board == "drama-hot":
-            message = "快手指数短剧热播榜当前没有条目"
     else:
         if not isinstance(data, list):
             raise RuntimeError(f"Kuaishou index {endpoint} response data is not a list (feed changed)")
         items = _keyword_items(data, int(arg))  # type: ignore[arg-type]
-    if not items and message is None:
+    if not items:
         raise RuntimeError(f"Kuaishou index {label} returned no items")
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": items,
-        "message": message,
     }
 
 

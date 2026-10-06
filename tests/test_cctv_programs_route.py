@@ -67,12 +67,6 @@ _NEWS_PAGE_HTML = """
 </div>
 """
 
-_NBA_PAGE_HTML = """
-<div id="zhiding"><script>var obj_data = [{dataUrl: 'https://sports.cctv.com/2026/09/28/ARTIpinned0000001.shtml',
-dataTitle: '置\\'顶条目', dataImg: '//p1.img.cctvpic.com/pin.jpg'}];</script></div>
-"""
-
-
 def _fake_get(calls: list, handlers: dict) -> object:
     async def fake_get(url, headers=None, params=None, no_cache=None, **kwargs):
         calls.append({"url": url, "params": params, "headers": headers, "no_cache": no_cache, "kwargs": kwargs})
@@ -240,35 +234,6 @@ async def test_news_rejects_missing_list(monkeypatch):
         await route.handle_route(_request("news-world"), no_cache=False)
 
 
-# ---------------------------------------------------------------- NBA
-
-
-@pytest.mark.asyncio
-async def test_nba_interleaves_photos_every_four_items(monkeypatch):
-    rows = []
-    for i in range(9):
-        rows.append(_news_row(f"ARTInba{i:014d}", f"NBA 资讯 {i}", "2026-09-28 02:00:00"))
-    for i in range(3):
-        rows.append(_news_row(f"PHOAnba000000000000{i}", f"图集 {i}", "2026-09-28 02:00:00"))
-    monkeypatch.setattr(
-        route, "get", _fake_get([], {"sports.cctv.com/nba/": _NBA_PAGE_HTML, "nba_remen_1.jsonp": "nba_remen(" + __import__("json").dumps({"data": {"list": rows}}, ensure_ascii=False) + ")"})
-    )
-    result = await route.handle_route(_request("sports-nba"), no_cache=False)
-
-    ids = [item.id for item in result.data]
-    # 置顶条在最前（zhiding.js obj_data）
-    assert ids[0] == "ARTIpinned0000001"
-    assert ids[1] == "ARTInba00000000000000"
-    # 每 4 条非图集后插 1 个图集：第 6、11 位（0 起：5、10）
-    assert ids[5] == "PHOAnba0000000000000"
-    assert ids[10] == "PHOAnba0000000000001"
-    # zhiding.js 口径:循环结束后剩余图集只在"不止 1 个"时追加——
-    # 9 条非图集只触发 2 次插图集,第 3 个图集(P2)被丢弃,最后一条是第 9 条资讯
-    assert ids[-1] == "ARTInba00000000000008"
-    assert result.data[0].title == "置'顶条目"  # 单引号转义还原
-    assert result.total == 12  # 1 置顶 + 9 非图集 + 2 图集(第 3 个按 zhiding.js 丢弃)
-
-
 # ---------------------------------------------------------------- 入口
 
 
@@ -279,6 +244,7 @@ async def test_unknown_board_is_rejected():
 
 
 def test_type_map_declares_all_boards():
-    assert len(route._TYPE_MAP) == 11
+    assert len(route._TYPE_MAP) == 10
+    assert "sports-nba" not in route._TYPE_MAP
     assert next(iter(route._TYPE_MAP)) == "news-china"  # 声明序第一个是默认榜（board_api DEFAULT_TYPE）
     assert route.ROUTE_META["params"]["type"]["type"] is route._TYPE_MAP

@@ -283,61 +283,6 @@ async def test_natgeo_maps_cards_and_drops_right_rail(monkeypatch, board, url_pa
         assert result.data[0].desc is None  # 文章總匯卡片没有 h5 分类
 
 
-# ---- 日经中文网 ----
-
-_NIKKEI_RSS = """
-<rss version=""><channel><title>日经中文网</title>
-<item><title>美联储加息周期下，该如何做全球资产配置？</title>
-  <link>http://cn.nikkei.com/columnviewpoint/column/64153-2026-09-28-05-00-05.html</link>
-  <guid>http://cn.nikkei.com/columnviewpoint/column/64153-2026-09-28-05-00-05.html</guid>
-  <pubDate>Sun, 27 Sep 2026 23:56:55 +0000</pubDate></item>
-<item><title>中国参与巴基斯坦电力业务意愿下降</title>
-  <link>http://cn.nikkei.com/columnviewpoint/column/64086-2026-09-28-05-00-10.html</link>
-  <guid>http://cn.nikkei.com/columnviewpoint/column/64086-2026-09-28-05-00-10.html</guid>
-  <pubDate>Sun, 27 Sep 2026 23:56:55 +0000</pubDate></item>
-</channel></rss>
-"""
-
-
-async def test_nikkei_sends_browser_ua_rewrites_https_and_uses_url_time(monkeypatch):
-    captured: dict[str, Any] = {}
-
-    async def fake_get(**kwargs):
-        captured.update(kwargs)
-        return _ok(_NIKKEI_RSS)
-
-    monkeypatch.setattr(magazine_sites, "get", fake_get)
-    result = await magazine_sites.handle_route(_request("nikkei-latest"), no_cache=True)
-
-    # CloudFront 对非浏览器 UA 返回缓存的 403 维护页,必须带浏览器 UA(header_matrix 实测)
-    assert captured["headers"]["User-Agent"].startswith("Mozilla/5.0")
-    assert result.total == 2
-    first = result.data[0]
-    assert first.id == "https://cn.nikkei.com/columnviewpoint/column/64153-2026-09-28-05-00-05.html"
-    assert first.url == first.id  # RSS 的 http 改成 https(HSTS)
-    assert first.timestamp == _ms(2026, 9, 28, 5, 0, 5)  # 链接里的时刻按北京时间;pubDate(生成时间)不用
-    assert result.message is None
-
-
-async def test_nikkei_retries_with_timestamp_query_on_maintenance_403(monkeypatch):
-    calls: list[str] = []
-
-    async def fake_get(**kwargs):
-        url = kwargs["url"]
-        calls.append(url)
-        if "?_=" not in url:
-            raise _status_error(url, 403)
-        assert "?_=" in url
-        return _ok(_NIKKEI_RSS)
-
-    monkeypatch.setattr(magazine_sites, "get", fake_get)
-    result = await magazine_sites.handle_route(_request("nikkei-latest"), no_cache=True)
-
-    assert len(calls) == 2
-    assert result.total == 2
-    assert result.message and "维护页" in result.message
-
-
 # ---- 科学网 ----
 
 _SCIENCENET_HOME = """
@@ -609,4 +554,5 @@ async def test_unknown_board_is_rejected():
 
 async def test_default_board_is_ft_hot_weekly():
     assert next(iter(magazine_sites.type_map)) == "ft-hot-weekly"
-    assert len(magazine_sites.type_map) == 12
+    assert len(magazine_sites.type_map) == 11
+    assert "nikkei-latest" not in magazine_sites.ROUTE_META["params"]["type"]["type"]

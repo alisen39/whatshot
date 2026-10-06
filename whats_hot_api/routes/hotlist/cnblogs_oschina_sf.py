@@ -1,4 +1,4 @@
-"""博客园 / 开源中国 / SegmentFault 三站的 13 个榜(多子榜路由)。
+"""博客园 / 开源中国两站的 8 个榜(多子榜路由)。
 
 与 whatshot 既有路由无重叠:whatshot 此前没有这三个站点的路由。子榜与口径
 照 board_api 证据(tmp/board_api/cnblogs_oschina_sf):
@@ -8,26 +8,22 @@
   与首页 HTML 同一列表同序,标题带" - 作者")。候选区、精华区的官方 RSS 返回 HTTP 500,不能用。
   48 小时评论排行周末常为空:页面显示"当前博文列表为空!"时输出 0 条并带 message,
   既没有条目也没有该提示时报错(页面结构变了)。
-- 开源中国:最新新闻、最新资讯是同一个官方 RSS /news/rss(tophub 两个节点前 3 条完全相同);
-  热门资讯取 /news 页右栏 h3.news-right-header"热门资讯"下的 10 条;社区推荐 / 最新软件取
+- 开源中国:社区推荐 / 最新软件取
   /project 页(前端渲染)背后的 GET apiv1.oschina.net/oschinapi/project/query,
   onlyRecommend=true|false 区分两个榜,业务码 code!=200 按业务错误壳拒绝。
-- SegmentFault:页面内嵌 __NEXT_DATA__。后端热榜 = /channel/backend 的 blogs.articles.rows
-  (20 条,服务端渲染);推荐文章 = 首页侧栏"精彩文章"(global.asidesData.articles,8 条,
-  原站每次请求从一个池子里随机轮换,是上游行为不是抓取问题)。
 
-id 一律用上游稳定标识(文章/新闻/项目 id,禁名次);timestamp 统一毫秒
-(博客园、开源中国软件库是北京时间字符串,SegmentFault created 是秒,由 get_time 归一化)。
+开源中国新闻 / 热门资讯与 SegmentFault 的 5 个榜已因上游不可达下线。
+
+id 一律用上游稳定标识(文章/项目 id,禁名次);timestamp 统一毫秒
+(博客园、开源中国软件库是北京时间字符串,由 get_time 归一化)。
 UA/Referer 非必需(实测缺省 UA、不带 Referer 结果相同),这里按页面口径带上开源中国
 软件库接口的 Referer/Origin。
 """
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
-from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from starlette.requests import Request
@@ -50,24 +46,16 @@ _BOARDS: dict[str, tuple[str, str, str, str]] = {
     "cnblogs-topviews": ("48小时阅读排行", "博客园", "cnblogs_html", "https://www.cnblogs.com/aggsite/topviews"),
     "cnblogs-candidate": ("候选区", "博客园", "cnblogs_html", "https://www.cnblogs.com/candidate/"),
     "cnblogs-pick": ("精华区", "博客园", "cnblogs_html", "https://www.cnblogs.com/pick/"),
-    "oschina-latest-news": ("最新新闻", "开源中国", "feed", "https://www.oschina.net/news/rss"),
-    "oschina-latest-info": ("最新资讯", "开源中国", "feed", "https://www.oschina.net/news/rss"),
-    "oschina-hot-news": ("热门资讯", "开源中国", "osc_hot", "https://www.oschina.net/news"),
     "oschina-project-recommend": ("社区推荐软件", "开源中国", "osc_project", "true"),
     "oschina-project-latest": ("社区最新软件", "开源中国", "osc_project", "false"),
-    "sf-backend": ("后端热榜", "SegmentFault", "sf_channel", "https://segmentfault.com/channel/backend"),
-    "sf-recommend": ("推荐文章", "SegmentFault", "sf_aside", "https://segmentfault.com/"),
 }
 
 type_map: dict[str, str] = {key: label for key, (label, _, _, _) in _BOARDS.items()}
 
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
-    "title": "博客园 / 开源中国 / SegmentFault",
-    "description": (
-        "博客园排行、候选区、精华区、首页推荐;开源中国新闻、热门资讯、软件库;"
-        "SegmentFault 后端频道与推荐文章。"
-    ),
+    "title": "博客园 / 开源中国",
+    "description": "博客园排行、候选区、精华区、首页推荐;开源中国软件库。",
     "link": "https://www.cnblogs.com/",
     "params": {
         "type": {
@@ -85,8 +73,6 @@ _FEED_HEADERS = {
 # feed 子榜对应的原站页面(响应 link 用;board_api 同口径)
 _FEED_PAGE_LINK = {
     "cnblogs-sitehome": "https://www.cnblogs.com/",
-    "oschina-latest-news": "https://www.oschina.net/news",
-    "oschina-latest-info": "https://www.oschina.net/news",
 }
 # 博客园列表每条的计数按榜单取:推荐排行、候选区、精华区取推荐数,评论排行取评论数,阅读排行取阅读数
 _CNB_HOT_LABEL = {
@@ -112,12 +98,6 @@ _OSC_HEADERS = {
     "Referer": "https://www.oschina.net/",
     "Origin": "https://www.oschina.net",
 }
-
-_SF_NEXT_DATA = re.compile(
-    r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.DOTALL
-)
-_SF_BASE = "https://segmentfault.com"
-
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     type_param = request.query_params.get("type", DEFAULT_TYPE)
@@ -148,11 +128,7 @@ async def _get_list(
         result = await get(url=target, response_type="text", no_cache=no_cache)
         items, message = _cnblogs_items(result.data, board)
         link = target
-    elif mode == "osc_hot":
-        result = await get(url=target, response_type="text", no_cache=no_cache)
-        items = _osc_hot_items(result.data)
-        link = target
-    elif mode == "osc_project":
+    else:  # osc_project
         result = await get(
             url=_OSC_PROJECT_API,
             params={**_OSC_PROJECT_PARAMS_BASE, "onlyRecommend": target},
@@ -162,16 +138,6 @@ async def _get_list(
         )
         items = _osc_project_items(result.data)
         link = "https://www.oschina.net/project"
-    elif mode == "sf_channel":
-        result = await get(url=target, response_type="text", no_cache=no_cache)
-        blogs = _next_state(result.data).get("blogs")
-        items = _sf_items(_nested(blogs, "articles", "rows"), hot_field="votes")
-        link = target
-    else:  # sf_aside
-        result = await get(url=target, response_type="text", no_cache=no_cache)
-        site_state = _next_state(result.data).get("global")
-        items = _sf_items(_nested(site_state, "asidesData", "articles"), hot_field=None)
-        link = target
     if not items and message is None:
         raise RuntimeError(f"{site} {label} returned no items")
     return {
@@ -224,33 +190,6 @@ def _cnblogs_items(page: str, board: str) -> tuple[list[ListItem], str | None]:
     return items, message
 
 
-def _osc_hot_items(page: str) -> list[ListItem]:
-    """解析开源中国 /news 页右栏"热门资讯"的 10 条(带名次,无时间)。"""
-    soup = BeautifulSoup(page, "lxml")
-    header = next(
-        (h for h in soup.select("h3.news-right-header") if "热门资讯" in h.get_text()), None
-    )
-    box = header.find_parent("div") if header else None
-    if box is None:
-        raise RuntimeError("oschina /news page has no 热门资讯 right column (page changed)")
-    items: list[ListItem] = []
-    for row in box.find_all("div", class_="item", recursive=False):
-        anchor = row.select_one("a.header")
-        if anchor is None or not anchor.get("href"):
-            continue
-        link = str(anchor["href"]).strip()
-        matched = re.search(r"/news/(\d+)", link)
-        items.append(
-            ListItem(
-                id=matched.group(1) if matched else link,
-                title=anchor.get_text(" ", strip=True),
-                url=link,
-                mobileUrl=link,
-            )
-        )
-    return items
-
-
 def _osc_project_items(payload: Any) -> list[ListItem]:
     """开源中国软件库接口;业务码 code!=200 或 result 不是列表按业务错误壳拒绝。"""
     if (
@@ -285,55 +224,6 @@ def _osc_project_items(payload: Any) -> list[ListItem]:
             )
         )
     return items
-
-
-def _next_state(page: str) -> dict[str, Any]:
-    """SegmentFault 页面内嵌的 __NEXT_DATA__ -> props.pageProps.initialState。"""
-    matched = _SF_NEXT_DATA.search(page)
-    if not matched:
-        raise RuntimeError("segmentfault page has no __NEXT_DATA__ (page changed)")
-    try:
-        payload = json.loads(matched.group(1))
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"segmentfault __NEXT_DATA__ is not valid JSON: {exc}") from exc
-    page_props = (payload.get("props") or {}).get("pageProps") or {}
-    state = page_props.get("initialState")
-    return state if isinstance(state, dict) else {}
-
-
-def _sf_items(rows: Any, hot_field: str | None) -> list[ListItem]:
-    items: list[ListItem] = []
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        path = str(row.get("url") or "").strip()
-        title = str(row.get("title") or "").strip()
-        if not path or not title:
-            continue
-        link = urljoin(_SF_BASE, path)
-        # 侧栏文章没有 id 字段,退回取 /a/<文章号>
-        matched = re.search(r"/a/(\d+)", path)
-        cover = row.get("cover")
-        user = row.get("user") if isinstance(row.get("user"), dict) else {}
-        items.append(
-            ListItem(
-                id=str(row.get("id") or (matched.group(1) if matched else link)),
-                title=title,
-                url=link,
-                mobileUrl=link,
-                hot=row.get(hot_field) if hot_field else None,
-                cover=urljoin(_SF_BASE, cover) if isinstance(cover, str) and cover else None,
-                author=user.get("name"),
-                # created 是秒级,由 get_time 归一化为毫秒
-                timestamp=get_time(row.get("created")),
-            )
-        )
-    return items
-
-
-def _nested(source: Any, key: str, inner: str) -> Any:
-    node = source.get(key) if isinstance(source, dict) else None
-    return node.get(inner) if isinstance(node, dict) else None
 
 
 def _int(text: str | None) -> int | None:
