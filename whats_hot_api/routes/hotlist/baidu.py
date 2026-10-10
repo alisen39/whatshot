@@ -109,11 +109,21 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
                 cover=v.get("img") or (v.get("imgInfo") or {}).get("src") or "",
                 author=", ".join(v["show"]) if isinstance(v.get("show"), list) else (v.get("show") or ""),
                 timestamp=0,
-                hot=_parse_hot(v.get("hotScore") or v.get("hotTag") or "0"),
+                hot=_parse_hot(v.get("hotScore")),
+                hotLabel="热搜指数" if type_param == "realtime" else None,
+                badges=[{"code": v.get("hotTag"), "imageUrl": v.get("hotTagImg"),
+                         "text": {"1": "新", "3": "热"}.get(str(v.get("hotTag")))}]
+                    if type_param == "realtime" and (v.get("hotTagImg") or str(v.get("hotTag", "0")) != "0")
+                    else ([] if type_param == "realtime" else None),
+                isPinned=bool(v.get("isTop")) if type_param == "realtime" else None,
+                sourceRank=(int(v["index"]) + 1) if type_param == "realtime"
+                    and not v.get("isTop") and str(v.get("index", "")).isdigit() else None,
                 url=item_url,
                 mobileUrl=v.get("rawUrl") or v.get("url") or "",
             )
         )
+    if not data:
+        raise ValueError("Baidu ranking returned no valid entries")
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,

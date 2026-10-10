@@ -1,0 +1,97 @@
+[
+  {
+    "type": "hot_list_feed",
+    "style_type": "1",
+    "id": "0_1791559899.770236",
+    "card_id": "Q_2091831158468244988",
+    "card_label": {
+      "type": "hot",
+      "icon": "https://pic2.zhimg.com/80/v2-266e83dbee46dce23b718e0531cb7d3a_1440w.png",
+      "night_icon": "https://pic3.zhimg.com/80/v2-c89199839c237b87e52f010bb5e7d773_1440w.png"
+    },
+    "target": {
+      "id": 2091831158468244988,
+      "title": "陶哲轩转发多位数学家抵制 OpenAI 的文章，怎么看待该观点？这将对 AI 数学研究带来哪些改变？",
+      "url": "https://api.zhihu.com/questions/2091831158468244988",
+      "type": "question",
+      "created": 1791511412,
+      "answer_count": 265,
+      "follower_count": 536,
+      "author": {
+        "type": "people",
+        "user_type": "people",
+        "id": "0",
+        "url_token": "",
+        "url": "",
+        "name": "用户",
+        "headline": "",
+        "avatar_url": "https://pica.zhimg.com/aadd7b895_s.jpg"
+      },
+      "bound_topic_ids": [
+        350,
+        1291,
+        165388,
+        180476,
+        188574
+      ],
+      "comment_count": 0,
+      "is_following": false,
+      "excerpt": "菲尔兹奖得主、数学界领军人物陶哲轩牵头人类数学协会（AHM）发表重磅联合声明，号召全球数学界集体行动、全面抵制OpenAI。 声明直言，一次性发布700多个文件“根本不算科研，纯粹是在炫耀算力霸权”，并强烈敦促所有数学家停止与OpenAI合作，重回以人类理解为核心的科学愿景。 引发抵制的直接背景，是OpenAI近期批量公开AI数学解答。10月6日其最初在GitHub发布722份AI生成数学手稿，10月7日因一处符号错误及其连锁影响撤回3份，现公开目录为719份，涵盖372个数学结果族。 OpenAI表示，发布前曾咨询普林斯顿高等研究院主持的“数学与人工智能顾问小组”（AGMAI），但从公开信息看，此次发布未完全达到该小组提出的标准。 AGMAI此前建议前沿AI实验室停止在专有、外界无法访问的模型上测试高难度数学问题，并要求披露模型名称、提示词、推理链、耗时及计算成本等信息。但OpenAI此次仍使用专有模型，仅10份手稿公开思维链。 这并非数学界首次表达类似立场。此前陶哲轩曾联合25位菲尔兹奖得主发表联合呼吁，直言“简直是疯了，AI公司无休止地加速，却对那之后会发生什么一无所知”，希望商业公司放慢脚步。 陶哲轩主张“必须慢下来”，并强调“完全没理由这么快，一点理由都没有”。这一系列表态使数学家群体与模型公司之间的立场分歧进一步公开化。 陶哲轩牵头人类数学协会发表联合声明，号召全球数学界全面抵制OpenAI-手机金融界"
+    },
+    "attached_info": "CkoI29fpvJXPkPASEAMaCTEyMTU5NjYyNSD0lqHWBjAAOJgEQAByEzIwOTE4MzExNTg0NjgyNDQ5ODh4AKoBCWJpbGxib2FyZNIBAA==",
+    "detail_text": "623 万热度",
+    "trend": 0,
+    "debut": false,
+    "children": [
+      {
+        "type": "answer",
+        "thumbnail": "https://pica.zhimg.com/80/v2-a0c6561ac4c4450428f861cd5802345c_720w.webp?source=1def8aca"
+      }
+    ]
+  },
+  {
+    "type": "hot_list_feed",
+    "style_type": "1",
+    "id": "2_1791559899.772370",
+    "card_id": "Q_2091810817008259841",
+    "target": {
+      "id": 2091810817008259841,
+      "title": "OpenAI 爆冷，1-9月年化营收低于预期200亿，美股、日经科技板块重挫，如何看其业绩影响？",
+      "url": "https://api.zhihu.com/questions/2091810817008259841",
+      "type": "question",
+      "created": 1791506562,
+      "answer_count": 51,
+      "follower_count": 170,
+      "author": {
+        "type": "people",
+        "user_type": "people",
+        "id": "0",
+        "url_token": "",
+        "url": "",
+        "name": "用户",
+        "headline": "",
+        "avatar_url": "https://pica.zhimg.com/aadd7b895_s.jpg"
+      },
+      "bound_topic_ids": [
+        6723,
+        19800,
+        65777,
+        2771574,
+        3301489
+      ],
+      "comment_count": 0,
+      "is_following": false,
+      "excerpt": "10月8日英国《金融时报》报道，OpenAI在最新投资者文件中显示，截至9月底的年化收入\"接近500亿美元\"，远低于上月末市场广泛引用的700亿美元预期。 针对《金融时报》披露的年化收入数据，CNBC 随后也向相关方求证并证实了该数据的准确性。 报道指出，这一缺口规模之大，\"很可能打击市场对AI需求增长的乐观情绪\"。消息公布后，美国科技股当日大幅下挫，纳斯达克指数收跌1.4%。 相差200亿！OpenAI营收被爆巨大预期差，AI板块遭重创，甲骨文跌逾5%，应用光电跌超10% - 华尔街见闻华尔街见闻openai营收不及预期"
+    },
+    "attached_info": "CkoI29fpvJXPkPASEAMaCTEyMTU5NTk2OSCC8aDWBjAAOKoBQAJyEzIwOTE4MTA4MTcwMDgyNTk4NDF4AKoBCWJpbGxib2FyZNIBAA==",
+    "detail_text": "215 万热度",
+    "trend": 0,
+    "debut": false,
+    "children": [
+      {
+        "type": "answer",
+        "thumbnail": "https://picx.zhimg.com/v2-7ec7e3ad533c24536109b965e6df8589_qhd.jpg?source=57bbeac9"
+      }
+    ]
+  }
+]

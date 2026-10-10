@@ -32,6 +32,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
     data = _parse_hot_band(result.data)
+    if not data:
+        raise ValueError("Weibo hot band returned no valid ranked topics")
     return RouterData(
         **ROUTE_META,
         type="热搜榜",
@@ -74,6 +76,7 @@ def _parse_hot_band(payload: object) -> list[ListItem]:
         seen_urls.add(url)
 
         description = _topic_description(row.get("word_scheme"), title)
+        badge = _badge_text(row.get("icon_desc"))
         data.append(
             ListItem(
                 id=title,
@@ -83,10 +86,20 @@ def _parse_hot_band(payload: object) -> list[ListItem]:
                 timestamp=get_time(row.get("onboard_time")),
                 url=url,
                 mobileUrl=url,
+                badges=[{"text": badge, "color": row.get("icon_desc_color")}] if badge else [],
+                sourceRank=rank,
+                isPinned=False,
+                hotLabel="热度",
             )
         )
 
     return data if len(data) <= _MAX_ITEMS else []
+
+
+def _badge_text(value: object) -> str | None:
+    # Status labels are optional. Do not turn malformed objects or boolean flags
+    # into visible labels, or infer a current status from onboarding time.
+    return value.strip() or None if isinstance(value, str) else None
 
 
 def _nonnegative_int(value: object) -> int | None:

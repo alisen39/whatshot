@@ -42,6 +42,8 @@ async def _get_list(no_cache: bool) -> dict:
         },
     )
 
+    if not isinstance(result.data, dict) or result.data.get("code") != 0 or not (result.data.get("data") or {}).get("list"):
+        raise ValueError("Bilibili popular videos returned no entries")
     data: list[ListItem] = []
     for item in (result.data or {}).get("data", {}).get("list") or []:
         bvid = item.get("bvid")
@@ -58,7 +60,13 @@ async def _get_list(no_cache: bool) -> dict:
                 cover=(item.get("pic") or "").replace("http:", "https:") or None,
                 author=(owner.get("name") or "").strip() or None,
                 timestamp=get_time(item.get("pubdate")),
-                hot=stat.get("view") or stat.get("vv") or stat.get("like"),
+                hot=stat.get("view"),
+                hotLabel="播放",
+                badges=[],
+                metrics={key: stat[field] for key, field in
+                         (("views", "view"), ("danmaku", "danmaku"), ("likes", "like")) if field in stat},
+                durationSeconds=item.get("duration"),
+                recommendationReason=(item.get("rcmd_reason") or {}).get("content"),
                 url=item.get("short_link_v2") or f"https://www.bilibili.com/video/{bvid}",
                 mobileUrl=f"https://m.bilibili.com/video/{bvid}",
             )

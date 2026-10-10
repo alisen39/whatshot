@@ -45,6 +45,8 @@ async def _get_list(no_cache: bool) -> dict:
         },
     )
 
+    if not isinstance(result.data, dict) or result.data.get("code", 0) != 0 or not isinstance(result.data.get("list"), list) or not result.data["list"]:
+        raise ValueError("Bilibili hot search returned no entries")
     data: list[ListItem] = []
     for item in (result.data or {}).get("list") or []:
         keyword = (item.get("keyword") or "").strip()
@@ -57,8 +59,11 @@ async def _get_list(no_cache: bool) -> dict:
             ListItem(
                 id=str(item.get("hot_id") or keyword),
                 title=title,
-                cover=(item.get("icon") or "").replace("http:", "https:") or None,
-                hot=item.get("heat_score") or item.get("score"),
+                badges=[{"code": item.get("word_type"), "imageUrl": item["icon"].replace("http:", "https:") if isinstance(item.get("icon"), str) else None}]
+                    if item.get("icon") or item.get("word_type") is not None else [],
+                sourceRank=item.get("pos"),
+                hot=item.get("heat_score"),
+                hotLabel="热度",
                 timestamp=get_time(stat_data.get("stime")),
                 url=url,
                 mobileUrl=url,

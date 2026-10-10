@@ -851,7 +851,10 @@ def _current_item(
     else:
         description = item.desc
         hot = item.hot
-        extra = {"cover": item.cover, "author": item.author}
+        extra = {
+            "cover": item.cover, "author": item.author,
+            **item.display_metadata(),
+        }
     extra = {key: value for key, value in extra.items() if value is not None}
     return {
         "itemId": item.id,

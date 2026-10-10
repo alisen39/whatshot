@@ -53,7 +53,14 @@ async def _get_list(no_cache: bool) -> dict:
         ListItem(
             id=v.get("sentence_id", ""),
             title=v.get("word", ""),
-            desc="置顶" if v.get("word_type") == 14 else None,
+            isPinned=v.get("word_type") == 14,
+            sourceRank=v.get("position") if v.get("word_type") != 14 else None,
+            badges=[{"code": v.get("label"), "imageUrl": v.get("label_url"),
+                     "text": {"1": "新", "3": "热"}.get(str(v.get("label")))}]
+                if v.get("label_url") or v.get("label") else [],
+            cover=_word_cover(v),
+            metrics={"views": v["view_count"]} if v.get("view_count") is not None else None,
+            hotLabel="热度",
             timestamp=get_time(v.get("event_time", "")),
             hot=v.get("hot_value"),
             url=f"https://www.douyin.com/hot/{v.get('sentence_id', '')}",
@@ -62,3 +69,9 @@ async def _get_list(no_cache: bool) -> dict:
         for v in word_list
     ]
     return {"from_cache": result.from_cache, "update_time": result.update_time, "data": data}
+
+
+def _word_cover(row: dict) -> str | None:
+    cover = row.get("word_cover")
+    urls = cover.get("url_list") if isinstance(cover, dict) else None
+    return urls[0] if isinstance(urls, list) and urls and isinstance(urls[0], str) else None

@@ -23,6 +23,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         headers["Cookie"] = config.ZHIHU_COOKIE
     result = await get(url=url, headers=headers or None, no_cache=no_cache)
     items = result.data.get("data", [])
+    if not isinstance(items, list) or not items:
+        raise ValueError("Zhihu hot list returned no entries")
     data = []
     for v in items:
         target = v["target"]
@@ -41,6 +43,14 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
                 cover=v["children"][0]["thumbnail"] if v.get("children") else None,
                 timestamp=get_time(target.get("created")),
                 hot=hot,
+                hotLabel="热度",
+                badges=[{"code": v["card_label"].get("type"),
+                         "imageUrl": v["card_label"].get("icon"),
+                         "darkImageUrl": v["card_label"].get("night_icon"),
+                         "text": {"new": "新", "hot": "热"}.get(str(v["card_label"].get("type")))}]
+                    if isinstance(v.get("card_label"), dict) else [],
+                metrics={key: target[field] for key, field in
+                         (("answers", "answer_count"), ("followers", "follower_count")) if field in target},
                 url=f"https://www.zhihu.com/question/{question_id}",
                 mobileUrl=f"https://www.zhihu.com/question/{question_id}",
             )

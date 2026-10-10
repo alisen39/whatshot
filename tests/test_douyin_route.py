@@ -49,7 +49,8 @@ async def test_fetches_without_cookie_bootstrap_and_keeps_version_name(monkeypat
     assert result.total == 2
     pinned, first = result.data
     assert pinned.id == "7001"
-    assert pinned.desc == "置顶"
+    assert pinned.isPinned is True
+    assert pinned.sourceRank is None
     assert pinned.hot == 0
     assert pinned.timestamp == 1790769600000  # 秒级补毫秒
     assert first.title == "热搜第一"

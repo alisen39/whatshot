@@ -683,3 +683,12 @@ async def test_contract_responses_validate_against_pinned_workspace_schemas(
     for name, response in responses.items():
         schema = json.loads((CONTRACT_SCHEMAS / f"{name}.schema.json").read_text())
         jsonschema.Draft202012Validator(schema).validate(response.json())
+
+
+def test_current_item_preserves_source_status_badge():
+    from whats_hot_api.daemon.backend_v1 import _current_item
+
+    item = ListItem(id="topic", title="Topic", url="https://example.com/topic",
+        badges=[{"text": "热", "color": "#ff9406"}])
+    payload = _current_item(item, rank=1, board_key="hot")
+    assert payload["extra"] == {"badges": [{"text": "热", "color": "#ff9406"}]}

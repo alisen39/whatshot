@@ -1,0 +1,73 @@
+[
+  {
+    "can_extend_detail": false,
+    "discuss_video_count": 1,
+    "hot_value": 0,
+    "hotlist_param": "{\"version\":1}",
+    "is_n1": true,
+    "label": 0,
+    "sentence_id": "2687905",
+    "topic_info": {},
+    "view_count": 0,
+    "word": "循着总书记足迹探寻中华文脉",
+    "word_type": 14
+  },
+  {
+    "article_detail_count": 0,
+    "can_extend_detail": false,
+    "discuss_video_count": 1,
+    "display_style": 0,
+    "event_time": 1791551649,
+    "group_id": "7694586616772302090",
+    "hot_value": 12015636,
+    "hotlist_param": "{\"version\":1}",
+    "is_n1": false,
+    "label": 1,
+    "label_url": "https://lf3-static.bytednsdoc.com/obj/eden-cn/vjl_avo_upfbvk/ljhwZthlaukjlkulzlp/hotspot_detail_page/1.png",
+    "max_rank": 1,
+    "position": 1,
+    "sentence_id": "2687979",
+    "sentence_tag": 5000,
+    "video_count": 11,
+    "view_count": 64318968,
+    "word": "NBA中国赛火箭战胜独行侠",
+    "word_cover": {
+      "uri": "tos-cn-p-0015/o0qXQIUAADEiGgfDo3DBfFJjyACrVQTN9NydvD",
+      "url_list": [
+        "https://p9-sign.douyinpic.com/tos-cn-p-0015/o0qXQIUAADEiGgfDo3DBfFJjyACrVQTN9NydvD~noop.jpeg?lk3s=bfd515bb&x-expires=1791579600&x-signature=UflmpVVy9c0TgNWTIIeQ50fzVgM%3D&from=3218412987",
+        "https://p26-sign.douyinpic.com/tos-cn-p-0015/o0qXQIUAADEiGgfDo3DBfFJjyACrVQTN9NydvD~noop.jpeg?lk3s=bfd515bb&x-expires=1791579600&x-signature=LikPel%2Bgjmb8bmUi2EG1%2Fq9WaXw%3D&from=3218412987",
+        "https://p5-ex-gddgtc-sign.douyinpic.com/tos-cn-p-0015/o0qXQIUAADEiGgfDo3DBfFJjyACrVQTN9NydvD~noop.jpeg?lk3s=bfd515bb&x-expires=1791579600&x-signature=AOVgLZqwHIr8PtFpDy%2Fam4xkp3U%3D&from=3218412987"
+      ]
+    },
+    "word_type": 1
+  },
+  {
+    "article_detail_count": 0,
+    "can_extend_detail": false,
+    "discuss_video_count": 1,
+    "display_style": 0,
+    "event_time": 1791535208,
+    "group_id": "7693188119521006848",
+    "hot_value": 11877951,
+    "hotlist_param": "{\"version\":1}",
+    "is_n1": false,
+    "label": 3,
+    "label_url": "https://lf3-static.bytednsdoc.com/obj/eden-cn/vjl_avo_upfbvk/ljhwZthlaukjlkulzlp/hotspot_detail_page/3.png",
+    "max_rank": 1,
+    "position": 2,
+    "sentence_id": "2687499",
+    "sentence_tag": 20002,
+    "video_count": 3,
+    "view_count": 59937698,
+    "word": "现在才懂纯过日子假期的含金量",
+    "word_cover": {
+      "uri": "tos-cn-p-0015c000-ce/oIgHJuWhfNLOmHYFg4TvOAbAgAfeYJejcepAtz",
+      "url_list": [
+        "https://p9-sign.douyinpic.com/tos-cn-p-0015c000-ce/oIgHJuWhfNLOmHYFg4TvOAbAgAfeYJejcepAtz~noop.jpeg?lk3s=bfd515bb&x-expires=1791579600&x-signature=UeZfSRoUf2dOGU2MDJS1ObpbSIk%3D&from=3218412987",
+        "https://p3-sign.douyinpic.com/tos-cn-p-0015c000-ce/oIgHJuWhfNLOmHYFg4TvOAbAgAfeYJejcepAtz~noop.jpeg?lk3s=bfd515bb&x-expires=1791579600&x-signature=dBHICQviW6aVNoRz1ayiZwyX0C4%3D&from=3218412987",
+        "https://p26-sign.douyinpic.com/tos-cn-p-0015c000-ce/oIgHJuWhfNLOmHYFg4TvOAbAgAfeYJejcepAtz~noop.jpeg?lk3s=bfd515bb&x-expires=1791579600&x-signature=dFJgeArDI2p0RuTQFzLkVKRLZVY%3D&from=3218412987"
+      ]
+    },
+    "word_type": 1
+  }
+]

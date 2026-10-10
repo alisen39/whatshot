@@ -26,12 +26,14 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
     Field,
+    ValidationError,
     field_serializer,
     field_validator,
     model_validator,
@@ -75,6 +77,51 @@ def _coerce_timestamp_ms(value: object) -> int | None:
     return val * 1000 if val < _MS_THRESHOLD else val
 
 
+HOTLIST_DISPLAY_FIELDS = (
+    "badges", "sourceRank", "isPinned", "hotLabel", "metrics",
+    "durationSeconds", "recommendationReason",
+)
+
+
+def _optional_text(value: object) -> str | None:
+    return value.strip() or None if isinstance(value, str) else None
+
+
+class ItemBadge(BaseModel):
+    """Native status label. An unknown code is retained without inventing text."""
+
+    code: str | None = None
+    text: str | None = None
+    imageUrl: str | None = None
+    darkImageUrl: str | None = None
+    color: str | None = None
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, value: object) -> str | None:
+        return str(value) if isinstance(value, (str, int)) and not isinstance(value, bool) else None
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def normalize_text(cls, value: object) -> str | None:
+        return _optional_text(value)
+
+    @field_validator("imageUrl", "darkImageUrl", mode="before")
+    @classmethod
+    def normalize_image(cls, value: object) -> str | None:
+        value = _optional_text(value)
+        if value and value.startswith("//"):
+            value = "https:" + value
+        return value if value and value.startswith(("https://", "http://")) else None
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def normalize_color(cls, value: object) -> str | None:
+        if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value.strip()):
+            return value.strip().lower()
+        return None
+
+
 class ListItem(BaseModel):
     """热榜 / 榜单类条目（对应 ``kind="hotlist"``）。
 
@@ -91,6 +138,13 @@ class ListItem(BaseModel):
     author: str | None = None  # 选填：作者 / UP主
     desc: str | None = None  # 选填：描述 / 摘要
     timestamp: int | None = None  # 选填：发布时间，Unix 毫秒级整数
+    badges: list[ItemBadge] | None = None  # None: unknown; []: explicitly no badge
+    sourceRank: int | None = None
+    isPinned: bool | None = None
+    hotLabel: str | None = None
+    metrics: dict[str, int] | None = None
+    durationSeconds: int | None = None
+    recommendationReason: str | None = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -112,12 +166,55 @@ class ListItem(BaseModel):
     def coerce_timestamp(cls, v: object) -> int | None:
         return _coerce_timestamp_ms(v)
 
-    @field_validator("cover", "author", "desc", mode="before")
+    @field_validator("cover", "author", "desc", "hotLabel", "recommendationReason", mode="before")
     @classmethod
     def empty_str_to_none(cls, v: object) -> object:
         if isinstance(v, str) and not v.strip():
             return None
         return v
+
+    @field_validator("badges", mode="before")
+    @classmethod
+    def normalize_badges(cls, value: object) -> list[ItemBadge] | None:
+        if not isinstance(value, list):
+            return None
+        result = []
+        for raw in value:
+            try:
+                badge = raw if isinstance(raw, ItemBadge) else ItemBadge.model_validate(raw)
+            except (ValidationError, TypeError):
+                continue
+            if any(badge.model_dump().values()):
+                result.append(badge)
+        return result
+
+    @field_validator("sourceRank", "durationSeconds", mode="before")
+    @classmethod
+    def normalize_positive_count(cls, value: object) -> int | None:
+        if isinstance(value, bool):
+            return None
+        try:
+            number = int(value)
+            return number if number > 0 and float(value) == number else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    @field_validator("isPinned", mode="before")
+    @classmethod
+    def normalize_pinned(cls, value: object) -> bool | None:
+        return value if isinstance(value, bool) else None
+
+    @field_validator("metrics", mode="before")
+    @classmethod
+    def normalize_metrics(cls, value: object) -> dict[str, int] | None:
+        if not isinstance(value, dict):
+            return None
+        return {key: count for key, count in value.items()
+                if isinstance(key, str) and isinstance(count, int)
+                and not isinstance(count, bool) and count >= 0}
+
+    def display_metadata(self) -> dict[str, Any]:
+        return self.model_dump(include=set(HOTLIST_DISPLAY_FIELDS), exclude_none=True)
 
 
 class GoldQuote(BaseModel):

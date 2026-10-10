@@ -6,7 +6,6 @@ from starlette.requests import Request
 from whats_hot_api.routes.hotlist import weibo
 from whats_hot_api.utils.http_client import RequestResult
 
-
 ROWS = [
     {
         "realpos": 1,
@@ -16,6 +15,8 @@ ROWS = [
         "num": 374284,
         "category": "情感",
         "label_name": "热",
+        "icon_desc": "热",
+        "icon_desc_color": "#ff9406",
         "onboard_time": 1784300362,
     },
     {
@@ -49,7 +50,7 @@ def _request() -> Request:
 
 @pytest.mark.asyncio
 async def test_weibo_uses_official_hot_band_and_excludes_ads(monkeypatch):
-    async def fake_get(**kwargs):  # noqa: ANN003
+    async def fake_get(**kwargs):
         assert kwargs["url"] == "https://weibo.com/ajax/statuses/hot_band"
         assert kwargs["headers"]["Referer"] == "https://weibo.com/"
         return RequestResult(
@@ -77,6 +78,8 @@ async def test_weibo_uses_official_hot_band_and_excludes_ads(monkeypatch):
         "%E5%AF%B9%E9%92%B1%E6%9C%89%E6%A6%82%E5%BF%B5%23"
     )
     assert first.mobileUrl == first.url
+    assert first.badges[0].text == "热"
+    assert first.badges[0].color == "#ff9406"
 
 
 def test_weibo_parser_requires_contiguous_unique_ranked_topics():
@@ -91,3 +94,26 @@ def test_weibo_parser_rejects_failed_or_malformed_payloads():
     assert weibo._parse_hot_band({"ok": 0, "data": {"band_list": ROWS}}) == []
     assert weibo._parse_hot_band({"ok": 1, "data": {"band_list": "bad"}}) == []
     assert weibo._parse_hot_band({"ok": 1, "data": {"band_list": [None]}}) == []
+
+
+@pytest.mark.parametrize(
+    ("label", "color", "expected_label", "expected_color"),
+    [
+        (" 新 ", "#FF3852", "新", "#ff3852"),
+        ("沸", "#f86400", "沸", "#f86400"),
+        ("", "#ff9406", None, None),
+        (None, None, None, None),
+        ({"bad": "value"}, "#ff9406", None, None),
+        ("热", "url(https://invalid.example)", "热", None),
+    ],
+)
+def test_weibo_preserves_only_explicit_source_status(
+    label, color, expected_label, expected_color
+):
+    row = {**ROWS[0], "icon_desc": label, "icon_desc_color": color, "is_new": 1}
+    item = weibo._parse_hot_band({"ok": 1, "data": {"band_list": [row]}})[0]
+    assert (item.badges[0].text if item.badges else None) == expected_label
+    assert (item.badges[0].color if item.badges else None) == expected_color
+    # Badge changes must never change topic identity, rank, or heat.
+    assert item.id == ROWS[0]["word"]
+    assert item.hot == ROWS[0]["num"]

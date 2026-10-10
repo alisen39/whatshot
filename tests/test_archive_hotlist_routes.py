@@ -489,7 +489,8 @@ async def test_bilibili_hot_search_maps_hotword_payload(monkeypatch):
     assert route_data.name == "bilibili-hot-search"
     assert item.id == "259825"
     assert item.title == "内马尔宣布将退出国家队"
-    assert item.cover == "https://i0.hdslb.com/icon.png"
+    assert item.cover is None
+    assert item.badges[0].imageUrl == "https://i0.hdslb.com/icon.png"
     assert item.hot == 4148295
     assert item.timestamp == 1783318181000
     assert item.url == (

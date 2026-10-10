@@ -20,6 +20,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     url = "https://tieba.baidu.com/hottopic/browse/topicList"
     result = await get(url=url, no_cache=no_cache)
     items = result.data.get("data", {}).get("bang_topic", {}).get("topic_list", [])
+    if not isinstance(items, list) or not items:
+        raise ValueError("Tieba topic list returned no entries")
     data = [
         ListItem(
             id=v["topic_id"],
@@ -27,6 +29,9 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
             desc=v.get("topic_desc"),
             cover=v.get("topic_pic"),
             hot=v.get("discuss_num"),
+            hotLabel="讨论",
+            sourceRank=v.get("idx_num"),
+            badges=[{"code": v.get("tag")}] if v.get("tag") is not None else [],
             timestamp=get_time(v.get("create_time")),
             url=v["topic_url"],
             mobileUrl=v["topic_url"],

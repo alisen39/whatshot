@@ -1,0 +1,86 @@
+[
+  {
+    "hot_id": 276341,
+    "keyword": "张雪机车葡萄牙站排位赛",
+    "show_name": "张雪机车葡萄牙站排位赛",
+    "score": 0.0,
+    "word_type": 7,
+    "goto_type": 0,
+    "goto_value": "",
+    "icon": "https://i0.hdslb.com/bfs/activity-plat/static/20251027/aafcb8031fd171c428daaa9b45867226/VaxAnHMq6w.gif",
+    "live_id": [
+      22604707,
+      22604707
+    ],
+    "call_reason": 1,
+    "heat_layer": "B",
+    "pos": 1,
+    "id": 1,
+    "status": "",
+    "name_type": "",
+    "resource_id": 22604707,
+    "set_gray": 0,
+    "card_values": [],
+    "heat_score": 4812000,
+    "stat_datas": {
+      "stime": "1791557994",
+      "cny_flag": "0",
+      "etime": "1791561654",
+      "is_commercial": "0"
+    }
+  },
+  {
+    "hot_id": 276340,
+    "keyword": "北京JDG战胜深圳DYG赛后数据",
+    "show_name": "北京JDG战胜深圳DYG赛后数据",
+    "score": 0.0,
+    "word_type": 4,
+    "goto_type": 0,
+    "goto_value": "",
+    "icon": "http://i0.hdslb.com/bfs/activity-plat/static/20221118/eaf2dd702d7cc14d8d9511190245d057/UF7B1wVKT2.png",
+    "live_id": [],
+    "call_reason": 1,
+    "heat_layer": "B",
+    "pos": 2,
+    "id": 2,
+    "status": "",
+    "name_type": "",
+    "resource_id": 0,
+    "set_gray": 0,
+    "card_values": [],
+    "heat_score": 4482236,
+    "stat_datas": {
+      "etime": "1791730380",
+      "stime": "1791557580",
+      "cny_flag": "0",
+      "is_commercial": "0"
+    }
+  },
+  {
+    "hot_id": 276307,
+    "keyword": "金秋尝蟹的白色固体能吃吗",
+    "show_name": "金秋尝蟹的白色固体能吃吗",
+    "score": 0.0,
+    "word_type": 8,
+    "goto_type": 0,
+    "goto_value": "",
+    "icon": "",
+    "live_id": [],
+    "call_reason": 1,
+    "heat_layer": "B",
+    "pos": 3,
+    "id": 3,
+    "status": "",
+    "name_type": "",
+    "resource_id": 0,
+    "set_gray": 0,
+    "card_values": [],
+    "heat_score": 1109278,
+    "stat_datas": {
+      "stime": "1791545538",
+      "is_commercial": "0",
+      "cny_flag": "0",
+      "etime": "1791718338"
+    }
+  }
+]

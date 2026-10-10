@@ -19,6 +19,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     url = "https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc"
     result = await get(url=url, no_cache=no_cache)
     items = result.data.get("data", [])
+    if not isinstance(items, list) or not items:
+        raise ValueError("Toutiao hot board returned no entries")
     data = [
         ListItem(
             id=v["ClusterIdStr"],
@@ -26,6 +28,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
             cover=v.get("Image", {}).get("url"),
             timestamp=get_time(v["ClusterIdStr"]),
             hot=int(v.get("HotValue", 0)),
+            hotLabel="热度",
+            badges=[{"code": v.get("Label"), "imageUrl": v.get("LabelUrl"),
+                     "text": {"new": "新", "hot": "热", "refuteRumors": "辟谣", "recentProgress": "新进展"}.get(str(v.get("Label")))}]
+                if v.get("Label") or v.get("LabelUrl") else [],
             url=f"https://www.toutiao.com/trending/{v['ClusterIdStr']}/",
             mobileUrl=f"https://api.toutiaoapi.com/feoffline/amos_land/new/html/main/index.html?topic_id={v['ClusterIdStr']}",
         )
