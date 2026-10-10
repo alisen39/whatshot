@@ -59,6 +59,8 @@ async def _get_list(no_cache: bool) -> dict:
             if isinstance(item.get("interation_info"), dict)
             else {}
         )
+        category = item.get("category") if isinstance(item.get("category"), dict) else {}
+        cate1_name = str(category.get("cate1_name") or "").strip()
         data.append(
             ListItem(
                 id=str(item.get("id") or url_value),
@@ -67,6 +69,9 @@ async def _get_list(no_cache: bool) -> dict:
                 author=(media_info.get("chl_name") or "").strip() or None,
                 desc=(item.get("desc") or item.get("long_summary") or "").strip() or None,
                 hot=interaction.get("read_num") or interaction.get("commet_num"),
+                # 一级分类是条目唯一的原生标识,无图标无角标
+                badges=[{"text": cate1_name}] if cate1_name else [],
+                metrics=_interaction_metrics(interaction),
                 timestamp=get_time(item.get("publish_time") or item.get("update_time")),
                 url=url_value,
                 mobileUrl=link_info.get("share_url") or url_value,
@@ -77,6 +82,22 @@ async def _get_list(no_cache: bool) -> dict:
         "update_time": result.update_time,
         "data": data,
     }
+
+
+def _interaction_metrics(interaction: dict) -> dict[str, int] | None:
+    # 互动计数只收正整数;接口对没有互动的键直接省略而非回 0
+    metrics: dict[str, int] = {}
+    for source_key, metric_key in (
+        ("read_num", "views"),
+        ("commet_num", "comments"),
+        ("like_num", "likes"),
+        ("collect_num", "collects"),
+        ("share_num", "shares"),
+    ):
+        value = interaction.get(source_key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[metric_key] = value
+    return metrics or None
 
 
 def _cover(pic_info: object) -> str | None:

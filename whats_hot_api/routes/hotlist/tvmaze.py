@@ -147,6 +147,8 @@ def _episode_item(value: object, board_type: str) -> ListItem | None:
         author=channel_name or None,
         desc=" · ".join(desc_parts) or None,
         cover=_cover_url(value, show),
+        # runtime 是分钟,换算成秒;非整数的 runtime 不进 durationSeconds
+        durationSeconds=runtime * 60 if isinstance(runtime, int) and not isinstance(runtime, bool) and runtime > 0 else None,
         timestamp=airstamp,
         url=episode_url,
         mobileUrl=episode_url,

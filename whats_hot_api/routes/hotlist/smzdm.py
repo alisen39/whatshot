@@ -60,18 +60,39 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
-        "data": [
-            ListItem(
-                id=v["article_id"],
-                title=v["title"],
-                desc=v.get("content"),
-                cover=v.get("pic_url"),
-                author=v.get("nickname"),
-                hot=int(v.get("collection_count", 0)),
-                timestamp=get_time(v.get("time_sort")),
-                url=v.get("jump_link", ""),
-                mobileUrl=v.get("jump_link", ""),
-            )
-            for v in items
-        ],
+        "data": [_article_item(v) for v in items],
     }
+
+
+def _article_item(v: dict) -> ListItem:
+    # 标题前置角标(专题/栏目)逐字保留,图片非 http(s) 链接时不带图
+    badges = []
+    for tag in v.get("article_title_pre_tag") or []:
+        if not isinstance(tag, dict):
+            continue
+        text = str(tag.get("article_title") or "").strip()
+        if not text:
+            continue
+        pic = str(tag.get("article_pic") or "").strip()
+        badge = {"text": text, "imageUrl": pic} if pic.startswith(("http://", "https://")) else {"text": text}
+        badges.append(badge)
+    metrics: dict[str, int] = {}
+    for source_key, metric_key in (("up_count", "likes"), ("comment_count", "comments"), ("collection_count", "favorites")):
+        value = v.get(source_key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[metric_key] = value
+    video_time = v.get("video_time")
+    return ListItem(
+        id=v["article_id"],
+        title=v["title"],
+        desc=v.get("content"),
+        cover=v.get("pic_url"),
+        author=v.get("nickname"),
+        hot=int(v.get("collection_count", 0)),
+        badges=badges,
+        metrics=metrics or None,
+        durationSeconds=video_time if isinstance(video_time, int) and not isinstance(video_time, bool) and video_time > 0 else None,
+        timestamp=get_time(v.get("time_sort")),
+        url=v.get("jump_link", ""),
+        mobileUrl=v.get("jump_link", ""),
+    )

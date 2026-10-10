@@ -23,18 +23,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     # Skip first item as in the TS source
     items = news_list[1:]
     data = [
-        ListItem(
-            id=v["id"],
-            title=v["title"],
-            desc=v.get("abstract"),
-            cover=v.get("miniProShareImage"),
-            author=v.get("source"),
-            hot=v.get("hotEvent", {}).get("hotScore"),
-            timestamp=get_time(v.get("timestamp")),
-            url=f"https://new.qq.com/rain/a/{v['id']}",
-            mobileUrl=f"https://view.inews.qq.com/k/{v['id']}",
-        )
-        for v in items
+        _news_item(v, position)
+        for position, v in enumerate(items, start=1)
     ]
     return RouterData(
         **ROUTE_META,
@@ -43,4 +33,39 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         fromCache=result.from_cache,
         updateTime=result.update_time,
         data=data,
+    )
+
+
+def _count(value: object) -> int | None:
+    # 计数字段可能是数字或数字字符串,两种都收;其余形态一律不进 metrics
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _news_item(v: dict, position: int) -> ListItem:
+    chlname = str(v.get("chlname") or "").strip()
+    metrics: dict[str, int] = {}
+    for source_key, metric_key in (("readCount", "views"), ("commentNum", "comments"), ("shareCount", "shares")):
+        value = _count(v.get(source_key))
+        if value is not None:
+            metrics[metric_key] = value
+    return ListItem(
+        id=v["id"],
+        title=v["title"],
+        desc=v.get("abstract"),
+        cover=v.get("miniProShareImage"),
+        author=v.get("source"),
+        hot=v.get("hotEvent", {}).get("hotScore"),
+        # 频道名/号名是条目唯一的原生标识
+        badges=[{"text": chlname}] if chlname else [],
+        metrics=metrics or None,
+        sourceRank=_count(v.get("ranking")) or position,
+        timestamp=get_time(v.get("timestamp")),
+        url=f"https://new.qq.com/rain/a/{v['id']}",
+        mobileUrl=f"https://view.inews.qq.com/k/{v['id']}",
     )

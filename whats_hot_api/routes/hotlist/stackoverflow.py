@@ -111,12 +111,21 @@ def _question_item(row: dict, board_type: str) -> ListItem | None:
         desc_parts.append(f"浏览：{row['view_count']}")
     if tags:
         desc_parts.append("标签：" + "、".join(tags[:6]))
+    # 回答/浏览计数允许 0;已解决标记是条目唯一的原生标识
+    badges = [{"text": "Answered"}] if row.get("is_answered") is True else []
+    metrics: dict[str, int] = {}
+    for source_key, metric_key in (("answer_count", "answers"), ("view_count", "views")):
+        value = row.get(source_key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            metrics[metric_key] = value
     return ListItem(
         id=question_id,
         title=title,
         author=unescape(str(owner.get("display_name") or "")).strip() or None,
         desc=" · ".join(desc_parts) or None,
         hot=row.get("score"),
+        badges=badges,
+        metrics=metrics or None,
         timestamp=get_time(row.get("creation_date")),
         url=url,
         mobileUrl=url,

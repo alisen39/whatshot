@@ -170,13 +170,17 @@ def _https_url(url: str) -> str:
 def _parse_items(contents: list[dict], board_key: str) -> list[ListItem]:
     page = _page_url(board_key)
     items: list[ListItem] = []
-    for row in contents:
+    for position, row in enumerate(contents, start=1):
         title = str(row.get("title") or "").strip()
         if not title:
             continue
         # 期待榜未上线的片子没有 pageUrl,页面上是空 href(指回榜单页),同样指回榜单页
         url = _https_url(str(row.get("pageUrl") or "")) or page
-        heat = row.get("mainIndex") if str(row.get("indexType")) in HEAT_INDEX_TYPES else None
+        index_type = str(row.get("indexType") or "")
+        heat = row.get("mainIndex") if index_type in HEAT_INDEX_TYPES else None
+        description = str(row.get("desc") or "").strip() or None
+        reason = str(row.get("promptDesc") or "").strip() or None
+        badges = _badge_texts(row)
         items.append(
             ListItem(
                 id=str(row.get("id") or row.get("aid") or row.get("tvid") or url),
@@ -184,13 +188,59 @@ def _parse_items(contents: list[dict], board_key: str) -> list[ListItem]:
                 url=url,
                 mobileUrl=url,
                 hot=heat,
+                hotLabel=INDEX_TYPE_LABELS.get(index_type, "热度"),
+                badges=badges,
+                sourceRank=_positive_int(row.get("order")) or position,
+                metrics=_index_metrics(row, index_type),
+                # desc 没有时取 promptDesc(推荐语)进 desc;两者都有时推荐语单列
+                desc=description or reason,
+                recommendationReason=reason if description and reason else None,
                 cover=_https_url(str(row.get("img") or "")) or None,
-                # desc 没有时取 promptDesc(推荐语);author/timestamp 留空:
                 # 主演只在各频道格式不一的 tags 字符串里,条目是作品没有发布时间
-                desc=str(row.get("desc") or row.get("promptDesc") or "").strip() or None,
             )
         )
     return items
+
+
+INDEX_TYPE_LABELS = {
+    "1": "实时热度",
+    "5": "最高热度",
+    "2": "飙升幅度",
+    "3": "推荐分",
+    "8": "期待值",
+}
+
+
+def _badge_texts(row: dict) -> list[dict] | None:
+    # 角标文案(弹幕量/上新标记等)逐字保留;空串与缺失一律不造
+    texts = [
+        str(row.get(key) or "").strip()
+        for key in ("bulletIndex", "recIndex", "onlineTimeTag", "theaterTag")
+    ]
+    badges = [{"text": text} for text in texts if text]
+    return badges or ([] if any(key in row for key in ("bulletIndex", "recIndex")) else None)
+
+
+def _index_metrics(row: dict, index_type: str) -> dict[str, int] | None:
+    metrics: dict[str, int] = {}
+    if index_type not in HEAT_INDEX_TYPES:
+        value = _positive_int(row.get("mainIndex"))
+        if value is not None:
+            metrics["index"] = value
+    want = _positive_int(row.get("orderPeopleCount"))
+    if want is not None:
+        metrics["want"] = want
+    return metrics or None
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 async def _fetch_board(board_key: str, no_cache: bool) -> dict:

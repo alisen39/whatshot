@@ -242,7 +242,20 @@ def _subject_item(row: dict[str, Any], *, hot_is_heat: bool) -> ListItem | None:
     score = f"评分 {value:.1f}" if value else (row.get("null_rating_reason") or None)
     cover = _cover_of(row)
     names = row.get("singer") if kind == "music" else row.get("author") if kind == "book" else None
-    blurb = row.get("description") or row.get("comment") or row.get("recommended_reason") or ""
+    blurb = row.get("description") or row.get("comment") or ""
+    # 推荐语不再并进 desc 回退链:两者都有时推荐语单列
+    reason = str(row.get("recommended_reason") or "").strip() or None
+    # 荣誉头衔(榜单名/年度榜单等)逐字保留,可有多枚
+    badges = [
+        {"text": str(honor.get("title") or "").strip()}
+        for honor in row.get("honor_infos") or []
+        if isinstance(honor, dict) and str(honor.get("title") or "").strip()
+    ]
+    metrics: dict[str, int] = {}
+    rank_value = row.get("rank_value")
+    if isinstance(rank_value, int) and not isinstance(rank_value, bool) and rank_value > 0:
+        metrics["rankValue"] = rank_value
+    rank = row.get("rank")
     # 实时热门榜的 score 是热度值；其余榜没有热度，用评价人数（与 douban-movie 的口径一致）
     hot = row.get("score") if hot_is_heat else (rating.get("count") or None)
     return ListItem(
@@ -254,6 +267,10 @@ def _subject_item(row: dict[str, Any], *, hot_is_heat: bool) -> ListItem | None:
         cover=cover,
         author=" / ".join(names) if isinstance(names, list) and names else None,
         desc=_join(score, row.get("card_subtitle") or row.get("info"), str(blurb)[:300]),
+        badges=badges,
+        metrics=metrics or None,
+        sourceRank=rank if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0 else None,
+        recommendationReason=reason if blurb and reason else None,
     )
 
 
@@ -489,6 +506,8 @@ async def _fetch_recent_hot(
                 url=f"https://movie.douban.com/subject/{sid}/",
                 mobileUrl=f"https://m.douban.com/movie/subject/{sid}/",
                 cover=pic.get("large") or pic.get("normal"),
+                # is_new 是该分支唯一的原生标识
+                badges=[{"text": "新上线"}] if row.get("is_new") is True else [],
                 desc=_join(
                     value and f"评分 {value}",
                     row.get("episodes_info"),

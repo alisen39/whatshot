@@ -58,7 +58,7 @@ async def _get_list(perf: str, no_cache: bool) -> dict:
         headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"},
     )
     data: list[ListItem] = []
-    for user in (result.data or {}).get("users", []):
+    for position, user in enumerate((result.data or {}).get("users", []), start=1):
         username = str(user.get("username") or "").strip()
         user_id = str(user.get("id") or username).strip()
         perf_data = (user.get("perfs") or {}).get(perf) or {}
@@ -81,6 +81,10 @@ async def _get_list(perf: str, no_cache: bool) -> dict:
                 title=username,
                 desc=" · ".join(desc_parts) or None,
                 hot=rating,
+                # GM/IM 等头衔是玩家唯一的原生标识;progress 负值由模型校验丢弃
+                badges=[{"text": title}] if title else [],
+                metrics={"progress": progress} if isinstance(progress, int) and not isinstance(progress, bool) else None,
+                sourceRank=position,
                 url=url,
                 mobileUrl=url,
             )

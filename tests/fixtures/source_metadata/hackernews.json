@@ -1,0 +1,22 @@
+[
+ {
+  "id": 39100001,
+  "type": "story",
+  "title": "Show HN: fixture",
+  "url": "https://example.com/a",
+  "by": "alice",
+  "score": 256,
+  "time": 1791650000,
+  "descendants": 42
+ },
+ {
+  "id": 39100002,
+  "type": "story",
+  "title": "Second",
+  "url": "https://example.com/b",
+  "by": "bob",
+  "score": 128,
+  "time": 1791649000,
+  "descendants": 7
+ }
+]

@@ -227,8 +227,10 @@ async def _get_list(type_param: str, range_param: str, no_cache: bool) -> dict:
                     author=v["owner"],
                     desc=v["desc"] or None,
                     hot=v["stars"],
+                    hotLabel="stars",
+                    sourceRank=position,
                 )
-                for v in repos
+                for position, v in enumerate(repos, start=1)
             ]
             message = None
             if not repos:

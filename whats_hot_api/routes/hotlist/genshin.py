@@ -54,6 +54,8 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
                 author=(v.get("user") or {}).get("nickname"),
                 timestamp=get_time(v["post"].get("created_at")),
                 hot=v["post"].get("view_status", 0),
+                # 该接口 stat 恒为 null、无子键可确认,metrics 不映射;recommendReason 只收字符串文案
+                recommendationReason=v.get("recommend_reason") if isinstance(v.get("recommend_reason"), str) else None,
                 url=f"https://www.miyoushe.com/ys/article/{v['post']['post_id']}",
                 mobileUrl=f"https://m.miyoushe.com/ys/#/article/{v['post']['post_id']}",
             )

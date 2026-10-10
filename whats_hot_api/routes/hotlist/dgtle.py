@@ -28,6 +28,9 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
             cover=v.get("cover"),
             author=v.get("from"),
             hot=v.get("membernum"),
+            badges=_cate_badge(v),
+            isPinned=True if v.get("top") == 1 else None,
+            metrics=_count_metrics(v),
             timestamp=get_time(v.get("created_at")),
             url=f"https://www.dgtle.com/news-{v['id']}-{v.get('type', '')}.html",
             mobileUrl=f"https://m.dgtle.com/news-details/{v['id']}",
@@ -42,3 +45,19 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         updateTime=result.update_time,
         data=data,
     )
+
+
+def _cate_badge(v: dict) -> list[dict]:
+    # 栏目名是条目唯一的原生标识,空串与缺失都不造
+    cate_name = str(v.get("cate_name") or "").strip()
+    return [{"text": cate_name}] if cate_name else []
+
+
+def _count_metrics(v: dict) -> dict[str, int] | None:
+    # 评论/点赞计数只收正整数,0 与缺失不进 metrics
+    metrics: dict[str, int] = {}
+    for source_key, metric_key in (("commentnum", "comments"), ("liketimes", "likes")):
+        value = v.get(source_key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[metric_key] = value
+    return metrics or None

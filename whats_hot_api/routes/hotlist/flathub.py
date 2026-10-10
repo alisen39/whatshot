@@ -117,6 +117,13 @@ def _app_item(row: object, rank: int, board_type: str) -> ListItem | None:
         if board_type == "trending" and trending is not None
         else installs
     )
+    # 官方认证标记是条目唯一的原生标识;安装/收藏计数只收正整数
+    badges = [{"text": "Verified"}] if row.get("verification_verified") is True else []
+    metrics: dict[str, int] = {}
+    for source_key, metric_key in (("installs_last_month", "installs"), ("favorites_count", "favorites")):
+        value = row.get(source_key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[metric_key] = value
     return ListItem(
         id=app_id,
         title=name,
@@ -124,6 +131,8 @@ def _app_item(row: object, rank: int, board_type: str) -> ListItem | None:
         desc=" · ".join(desc_parts),
         hot=hot,
         cover=_text(row.get("icon")) or None,
+        badges=badges,
+        metrics=metrics or None,
         timestamp=event_timestamp,
         url=url,
         mobileUrl=url,

@@ -1,0 +1,57 @@
+[
+ {
+  "tags": [
+   "python",
+   "torch",
+   "torchvision"
+  ],
+  "owner": {
+   "account_id": 31110583,
+   "reputation": 27,
+   "user_id": 23919807,
+   "user_type": "registered",
+   "profile_image": "https://www.gravatar.com/avatar/caa0e381a41431c0f0b01eb99b7665eb?s=256&d=identicon&r=PG&f=y&so-version=2",
+   "display_name": "Laika",
+   "link": "https://stackoverflow.com/users/23919807/laika"
+  },
+  "is_answered": false,
+  "view_count": 32,
+  "answer_count": 1,
+  "score": 0,
+  "last_activity_date": 1791648022,
+  "creation_date": 1791642868,
+  "question_id": 80009114,
+  "content_license": "CC BY-SA 4.0",
+  "link": "https://stackoverflow.com/questions/80009114/how-to-get-both-losses-and-detection-predictions-from-torchvision-faster-r-cnn-i",
+  "title": "How to get both losses and detection predictions from Torchvision Faster R-CNN in training mode and vice versa?"
+ },
+ {
+  "tags": [
+   "android-studio",
+   "intellij-idea",
+   "autocomplete",
+   "code-completion"
+  ],
+  "owner": {
+   "account_id": 311307,
+   "reputation": 11918,
+   "user_id": 624814,
+   "user_type": "registered",
+   "accept_rate": 79,
+   "profile_image": "https://www.gravatar.com/avatar/3a863d626cfeba2251bdf48ee8b38b7a?s=256&d=identicon&r=PG",
+   "display_name": "SMBiggs",
+   "link": "https://stackoverflow.com/users/624814/smbiggs"
+  },
+  "is_answered": false,
+  "view_count": 42,
+  "answer_count": 1,
+  "score": -2,
+  "last_activity_date": 1791649948,
+  "creation_date": 1791646303,
+  "last_edit_date": 1791646712,
+  "question_id": 80009126,
+  "content_license": "CC BY-SA 4.0",
+  "link": "https://stackoverflow.com/questions/80009126/how-can-i-disable-code-completion-in-comments",
+  "title": "How can I disable code completion in comments?"
+ }
+]

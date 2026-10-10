@@ -62,7 +62,8 @@ def test_hackernews_filters_invalid_items_and_uses_discussion_url():
     item = hackernews._item_from_row(
         {"id": 123, "type": "job", "title": "Example is hiring", "time": 1784336468},
         "jobs",
+        3,
     )
     assert item is not None
     assert item.url == "https://news.ycombinator.com/item?id=123"
-    assert hackernews._item_from_row({"id": 124, "type": "job", "title": "Wrong"}, "new") is None
+    assert hackernews._item_from_row({"id": 124, "type": "job", "title": "Wrong"}, "new", 4) is None

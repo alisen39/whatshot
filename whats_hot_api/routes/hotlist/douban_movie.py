@@ -143,6 +143,8 @@ async def _get_hot(no_cache: bool) -> dict:
                 title=title,
                 desc=str(row.get("card_subtitle") or "").strip() or None,
                 cover=_cover_url(row.get("cover_url") or row.get("pic")),
+                # is_new 是该分支唯一的原生标识
+                badges=[{"text": "新上线"}] if row.get("is_new") is True else [],
                 url=url,
                 mobileUrl=f"https://m.douban.com/movie/subject/{item_id}/",
             )

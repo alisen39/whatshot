@@ -34,6 +34,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
             cover=v.get("small_image"),
             author=(v.get("author") or {}).get("nickname"),
             hot=None,
+            badges=[{"text": "编辑推荐"}] if v.get("is_editor_recommend") is True else [],
+            metrics=_reply_metrics(v),
             timestamp=get_time(v.get("date_modified")),
             url=f"https://www.guokr.com/article/{v['id']}",
             mobileUrl=f"https://m.guokr.com/article/{v['id']}",
@@ -48,3 +50,11 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         updateTime=result.update_time,
         data=data,
     )
+
+
+def _reply_metrics(v: dict) -> dict[str, int] | None:
+    # 回复数只收正整数,0 与缺失不进 metrics
+    value = v.get("replies_count")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return {"replies": value}
+    return None

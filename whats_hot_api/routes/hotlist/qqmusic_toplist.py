@@ -94,8 +94,8 @@ async def _get_board(top_id: int, label: str, no_cache: bool) -> dict:
         if isinstance(info, dict) and info.get("id") is not None
     }
     items = [
-        _item(infos[rank["songId"]])
-        for rank in ranks
+        _item(infos[rank["songId"]], position)
+        for position, rank in enumerate(ranks, start=1)
         if isinstance(rank, dict) and rank.get("songId") in infos and infos[rank["songId"]].get("mid")
     ]
     if not items:
@@ -144,7 +144,7 @@ def _timestamp(day: object) -> int | None:
     return seconds if seconds > 0 else None
 
 
-def _item(info: dict) -> ListItem:
+def _item(info: dict, position: int) -> ListItem:
     mid = info["mid"]
     album = info.get("album") or {}
     singers = [
@@ -152,6 +152,14 @@ def _item(info: dict) -> ListItem:
         for singer in info.get("singer") or []
         if isinstance(singer, dict)
     ]
+    # 名次行的 rankValue:"0"=名次不变,其他值是涨幅百分比(接口注释口径)
+    rank_value = str(info.get("rankValue") or "").strip()
+    metrics = None
+    if rank_value not in ("", "0"):
+        try:
+            metrics = {"rankChange": int(float(rank_value))}
+        except ValueError:
+            metrics = None
     return ListItem(
         id=mid,
         # title 带版本后缀(如"出现又离开 (Live)"),与网页、tophub 一致;name 不带后缀,不用
@@ -161,5 +169,15 @@ def _item(info: dict) -> ListItem:
         cover=_cover(info),
         author="/".join(name for name in singers if name) or None,
         desc=str(album.get("title") or album.get("name") or "").strip() or None,
+        sourceRank=_positive_int(info.get("rank")) or position,
+        metrics=metrics,
         timestamp=_timestamp(info.get("time_public")),
     )
+
+
+def _positive_int(value: object) -> int | None:
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None

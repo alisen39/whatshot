@@ -136,8 +136,10 @@ async def _get_hot_rank(channel: str, no_cache: bool) -> dict:
                 url=link,
                 mobileUrl=link,
                 hot=row.get("hotRankScore"),
+                hotLabel="热度",
                 cover=pics[0] if pics else None,
                 author=row.get("nickName"),
+                metrics=_count_metrics(row),
             )
         )
     if not items:
@@ -165,12 +167,27 @@ async def _get_new_author(no_cache: bool) -> dict:
                 url=link,
                 mobileUrl=link,
                 hot=row.get("hotRankScore"),
+                hotLabel="热度",
+                # 新晋作者接口不带阅读/评论/收藏计数,metrics 留空
                 author=row.get("nickName"),
             )
         )
     if not items:
         raise RuntimeError("CSDN new author rank returned no items")
     return {"from_cache": result.from_cache, "update_time": result.update_time, "data": items}
+
+
+def _count_metrics(row: dict) -> dict[str, int] | None:
+    # 阅读/评论/收藏计数接口回数字字符串,非正整数(含 0 与缺失)不进 metrics
+    metrics: dict[str, int] = {}
+    for source_key, metric_key in (("viewCount", "views"), ("commentCount", "comments"), ("favorCount", "favorites")):
+        try:
+            number = int(str(row.get(source_key)).strip())
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            metrics[metric_key] = number
+    return metrics or None
 
 
 async def _get_news_rss(no_cache: bool) -> dict:

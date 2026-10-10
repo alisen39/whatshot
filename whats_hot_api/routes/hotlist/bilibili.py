@@ -80,20 +80,7 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
         return {
             "from_cache": result.from_cache,
             "update_time": result.update_time,
-            "data": [
-                ListItem(
-                    id=v["bvid"],
-                    title=v["title"],
-                    desc=v.get("desc") or "该视频暂无简介",
-                    cover=(v.get("pic") or "").replace("http:", "https:") or None,
-                    author=v.get("owner", {}).get("name"),
-                    timestamp=get_time(v.get("pubdate")),
-                    hot=v.get("stat", {}).get("view", 0),
-                    url=v.get("short_link_v2") or f"https://www.bilibili.com/video/{v['bvid']}",
-                    mobileUrl=f"https://m.bilibili.com/video/{v['bvid']}",
-                )
-                for v in items
-            ],
+            "data": [_video_item(v, position) for position, v in enumerate(items, start=1)],
         }
 
     # Fallback API
@@ -123,3 +110,34 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
             for v in items
         ],
     }
+
+
+def _video_item(row: dict, position: int) -> ListItem:
+    # ranking/v2 条目:stat 全套计数、duration(秒)、score(哔哩哔哩指数)、tname 分区
+    stat = row.get("stat") if isinstance(row.get("stat"), dict) else {}
+    tname = str(row.get("tname") or "").strip()
+    duration = row.get("duration")
+    score = stat.get("score") if isinstance(stat.get("score"), (int, float)) else None
+    metrics: dict[str, int] = {}
+    for key in ("danmaku", "reply", "favorite", "coin", "share", "like"):
+        value = stat.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[key] = value
+    if isinstance(score, (int, float)) and not isinstance(score, bool) and score > 0:
+        metrics["score"] = int(score)
+    return ListItem(
+        id=row["bvid"],
+        title=row["title"],
+        desc=row.get("desc") or "该视频暂无简介",
+        cover=(row.get("pic") or "").replace("http:", "https:") or None,
+        author=(row.get("owner") or {}).get("name"),
+        timestamp=get_time(row.get("pubdate")),
+        hot=stat.get("view", 0),
+        hotLabel="播放",
+        badges=[{"text": tname}] if tname else [],
+        metrics=metrics or None,
+        durationSeconds=duration if isinstance(duration, int) and duration > 0 else None,
+        sourceRank=position,
+        url=row.get("short_link_v2") or f"https://www.bilibili.com/video/{row['bvid']}",
+        mobileUrl=f"https://m.bilibili.com/video/{row['bvid']}",
+    )

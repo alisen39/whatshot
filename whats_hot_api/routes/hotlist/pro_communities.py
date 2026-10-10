@@ -225,6 +225,7 @@ async def _get_maimai(no_cache: bool) -> dict:
             continue
         url = f"https://maimai.cn/n/content/global-topic?circle_type={topic.get('type') or 9}&topic_id={topic_id}"
         card = topic.get("hot_type_card")
+        card_text = str(card.get("text") or "").strip() if isinstance(card, dict) else ""
         items.append(
             ListItem(
                 id=topic_id,
@@ -234,7 +235,8 @@ async def _get_maimai(no_cache: bool) -> dict:
                 hot=topic.get("view_count"),
                 cover=topic.get("icon") or None,
                 # 角标文字（如「热议」），没有为空；数据里没有时间，timestamp 留空
-                desc=(card.get("text") or None) if isinstance(card, dict) else None,
+                desc=card_text or None,
+                badges=[{"text": card_text}] if card_text else [],
             )
         )
     return _finish(result, items)

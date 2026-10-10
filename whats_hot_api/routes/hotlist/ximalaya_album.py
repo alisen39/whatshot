@@ -54,15 +54,24 @@ def _track_item(track: dict) -> ListItem:
         cover = cover.replace("http://", "https://", 1)
     else:
         cover = None
+    duration = track.get("duration")
+    metrics: dict[str, int] = {}
+    for key in ("likes", "comments", "shares"):
+        value = track.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            metrics[key] = value
     return ListItem(
         id=track_id,
         title=str(track.get("title") or ""),
         url=f"{_SITE}/sound/{track_id}",
         mobileUrl=f"{_MOBILE}/sound/{track_id}",
         hot=track.get("playtimes"),
+        hotLabel="播放",
         author=str(track.get("nickname") or "") or None,
         cover=cover,
         desc=str(track.get("intro") or "").strip() or None,
+        durationSeconds=duration if isinstance(duration, int) and duration > 0 else None,
+        metrics=metrics or None,
         timestamp=get_time(track.get("createdAt")),
     )
 

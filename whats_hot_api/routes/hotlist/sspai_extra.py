@@ -94,6 +94,28 @@ def _sspai_cover(path: Any) -> str | None:
     return path if path.startswith("http") else _SSPAI_CDN + path.lstrip("/")
 
 
+def _corner_badge(row: dict[str, Any]) -> list[dict]:
+    # corner 角标只认 name 文案;icon 不是 http(s) 链接时不带图
+    corner = row.get("corner") if isinstance(row.get("corner"), dict) else {}
+    name = str(corner.get("name") or "").strip()
+    if not name:
+        return []
+    icon = str(corner.get("icon") or "").strip()
+    if icon.startswith(("http://", "https://")):
+        return [{"text": name, "imageUrl": icon}]
+    return [{"text": name}]
+
+
+def _count_metrics(row: dict[str, Any]) -> dict[str, int] | None:
+    # 计数只收正整数;一派/专栏条目没有这些字段,不进 metrics
+    metrics: dict[str, int] = {}
+    for source_key, metric_key in (("view_count", "views"), ("comment_count", "comments"), ("like_count", "likes")):
+        value = row.get(source_key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[metric_key] = value
+    return metrics or None
+
+
 def _sspai_article(row: dict[str, Any]) -> ListItem | None:
     if row.get("advertisement_url"):  # 广告位：卡片链到广告地址，不算条目
         return None
@@ -113,6 +135,8 @@ def _sspai_article(row: dict[str, Any]) -> ListItem | None:
         author=author.get("nickname"),
         desc=_plain(row.get("summary"), 500) or None,
         timestamp=get_time(row.get("released_time")),
+        badges=_corner_badge(row),
+        metrics=_count_metrics(row),
     )
 
 

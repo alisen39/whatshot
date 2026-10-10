@@ -34,6 +34,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
                 cover=None,
                 author=(post.get("account") or {}).get("name"),
                 hot=None,
+                # 版块名是条目唯一的原生标识,URL query 里已带同名参数
+                badges=[{"text": board_title}] if board_title.strip() else [],
                 timestamp=get_time(post.get("postTime")),
                 url=item_url,
                 mobileUrl=item_url,

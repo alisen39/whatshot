@@ -63,6 +63,8 @@ async def _get_topic(topic_id: str, no_cache: bool) -> dict:
             title=item["title"],
             author=item.get("username"),
             hot=item.get("replies"),
+            # 推荐数用上游原键名,不解释含义
+            metrics=_recommend_metrics(item),
             url=f"https://bbs.hupu.com/{item['tid']}.html",
             mobileUrl=item.get("url", f"https://bbs.hupu.com/{item['tid']}.html"),
         )
@@ -73,6 +75,14 @@ async def _get_topic(topic_id: str, no_cache: bool) -> dict:
         "update_time": result.update_time,
         "data": data,
     }
+
+
+def _recommend_metrics(item: dict) -> dict[str, int] | None:
+    # recommendNum 只收正整数,0 与缺失不进 metrics
+    value = item.get("recommendNum")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return {"recommendNum": value}
+    return None
 
 
 async def _get_home(no_cache: bool) -> dict:

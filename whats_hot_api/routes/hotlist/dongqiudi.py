@@ -164,8 +164,17 @@ def _item(row: dict[str, Any], pc_link: bool) -> ListItem | None:
         cover=row.get("thumb") or row.get("litpic") or None,
         author=_author(row),
         desc=str(row.get("description") or "").strip() or None,
+        metrics={"comments": count} if (count := _positive_int(row.get("comments_total"))) else None,
         timestamp=_timestamp(row.get("show_time")),
     )
+
+
+def _positive_int(value: object) -> int | None:
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:

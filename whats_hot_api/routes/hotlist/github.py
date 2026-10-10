@@ -52,10 +52,14 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
                 desc=v["description"] or None,
                 author=v.get("owner"),
                 hot=v["stars"] or None,
+                hotLabel="stars",
+                badges=[{"text": v["language"]}] if v.get("language") else [],
+                metrics=_fork_metrics(v.get("forks")),
+                sourceRank=position,
                 url=v["url"],
                 mobileUrl=v["url"],
             )
-            for v in list_data["data"]
+            for position, v in enumerate(list_data["data"], start=1)
         ]
         link = f"https://github.com/trending?since={type_}"
     return RouterData(
@@ -185,3 +189,8 @@ async def _get_trending_repos(type_: str, no_cache: bool = False, ttl: int | Non
                 await asyncio.sleep(2**i)
 
     raise last_error or Exception("request failed")
+
+
+def _fork_metrics(forks_text: object) -> dict[str, int] | None:
+    text = str(forks_text or "").replace(",", "").strip()
+    return {"forks": int(text)} if text.isdigit() else None

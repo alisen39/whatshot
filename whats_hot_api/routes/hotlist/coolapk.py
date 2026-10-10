@@ -70,8 +70,22 @@ def _item(x: dict[str, Any]) -> ListItem:
     url = "https://www.coolapk.com" + path  # /feed/<id>;酷图是 /picture/<id>
     pics = [p for p in x.get("picArr") or [] if isinstance(p, str) and p]
     cover = x.get("pic") or (pics[0] if pics else None) or x.get("message_cover") or None
+    metrics = _count_metrics(x)
+    board = str(x.get("dyh_name") or "").strip()
     return ListItem(id=str(x["id"]), title=title, url=url, mobileUrl=url, cover=cover, author=x.get("username"),
-                    desc=text[:500] if text and text != title else None, timestamp=x.get("dateline"))
+                    desc=text[:500] if text and text != title else None, timestamp=x.get("dateline"),
+                    hotLabel="热度" if x.get("rank_score") is not None else None,
+                    badges=[{"text": board}] if board else [],
+                    metrics=metrics)
+
+
+def _count_metrics(x: dict[str, Any]) -> dict[str, int] | None:
+    metrics = {}
+    for key in ("replynum", "likenum", "favnum", "forwardnum", "viewnum"):
+        value = x.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[key] = value
+    return metrics or None
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:

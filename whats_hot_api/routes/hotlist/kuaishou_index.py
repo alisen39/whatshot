@@ -97,7 +97,7 @@ def _https(url: str | None) -> str | None:
 
 def _keyword_items(rows: list[dict], rank_type: int) -> list[ListItem]:
     items = []
-    for row in rows:
+    for position, row in enumerate(rows, start=1):
         keyword = (row.get("keyword") or "").strip()
         if not keyword:
             continue
@@ -111,6 +111,8 @@ def _keyword_items(rows: list[dict], rank_type: int) -> list[ListItem]:
                 url=url,
                 mobileUrl=url,
                 hot=row.get("hotValue"),
+                hotLabel="热度",
+                sourceRank=_positive_int(row.get("rank")) or position,
                 cover=_https(row.get("poster")),
             )
         )
@@ -119,7 +121,7 @@ def _keyword_items(rows: list[dict], rank_type: int) -> list[ListItem]:
 
 def _tube_items(rows: list[dict]) -> list[ListItem]:
     items = []
-    for row in rows:
+    for position, row in enumerate(rows, start=1):
         url = row.get("url") or ""
         if not url.startswith("http"):
             raise RuntimeError(f"Kuaishou drama item missing video link: {row.get('tubeName')!r}")
@@ -130,9 +132,20 @@ def _tube_items(rows: list[dict]) -> list[ListItem]:
                 url=url,
                 mobileUrl=url,
                 hot=row.get("popularityValue"),
+                hotLabel="热度",
+                badges=[{"text": row["channelName"]}] if str(row.get("channelName") or "").strip() else [],
+                sourceRank=position,
                 cover=_https(row.get("poster")),
                 desc=row.get("channelName") or None,
                 timestamp=row.get("onlineTime"),
             )
         )
     return items
+
+
+def _positive_int(value: object) -> int | None:
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None

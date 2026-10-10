@@ -119,6 +119,7 @@ def autohome_rank(payload: Any) -> list[ListItem]:
         if not isinstance(row, dict) or not row.get("title") or not row.get("url"):
             continue
         url = str(row["url"]).strip()
+        rank = row.get("rank")
         items.append(
             ListItem(
                 id=str(row.get("bizId") or "") or url,
@@ -127,6 +128,8 @@ def autohome_rank(payload: Any) -> list[ListItem]:
                 mobileUrl=url,
                 # 页面在 [2,3] 两个榜显示 subTitle("指数"),不显示 hotScore
                 hot=parse_wan(row.get("subTitle")),
+                # 接口自带的 rank 字段即展示位置
+                sourceRank=rank if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0 else None,
             )
         )
     return items

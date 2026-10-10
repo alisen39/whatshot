@@ -53,9 +53,25 @@ async def _get_list(sort_param: str, no_cache: bool) -> dict:
                 author=v.get("author"),
                 timestamp=get_time(v.get("updated_at")),
                 hot=v.get("clicks_total"),
+                badges=_lang_badge(v),
+                metrics=_comment_metrics(v),
                 url=f"https://hellogithub.com/repository/{v['item_id']}",
                 mobileUrl=f"https://hellogithub.com/repository/{v['item_id']}",
             )
             for v in items
         ],
     }
+
+
+def _lang_badge(v: dict) -> list[dict]:
+    # 主语言名是条目唯一的原生标识;颜色字段不映射
+    primary_lang = str(v.get("primary_lang") or "").strip()
+    return [{"text": primary_lang}] if primary_lang else []
+
+
+def _comment_metrics(v: dict) -> dict[str, int] | None:
+    # 评论数只收正整数,0 与缺失不进 metrics
+    value = v.get("comment_total")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return {"comments": value}
+    return None

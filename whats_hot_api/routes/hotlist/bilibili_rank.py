@@ -224,20 +224,32 @@ def _rcmd_reason(row: dict) -> str | None:
     return None
 
 
-def _video_item(row: dict, reason: str | None = None) -> ListItem:
+def _video_item(row: dict, reason: str | None = None, position: int | None = None) -> ListItem:
     # 字段口径照 board_api:hot=播放数,author=UP 主,timestamp=发布时间;
     # desc 优先放推荐理由(综合热门 / 每周必看 / 入站必刷才有),否则视频简介
     bvid = row.get("bvid") or ""
     stat = row.get("stat") if isinstance(row.get("stat"), dict) else {}
+    tname = str(row.get("tname") or "").strip()
+    metrics: dict[str, int] = {}
+    for key in ("danmaku", "reply", "favorite", "coin", "share", "like"):
+        value = stat.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[key] = value
+    duration = row.get("duration")
     return ListItem(
         id=bvid,
         title=row.get("title") or "",
         url=f"https://www.bilibili.com/video/{bvid}",
         mobileUrl=f"https://m.bilibili.com/video/{bvid}",
         hot=stat.get("view"),
+        hotLabel="播放",
         cover=_https(row.get("pic")),
         author=((row.get("owner") or {}).get("name")),
         desc=reason or row.get("desc"),
+        badges=[{"text": tname}] if tname else [],
+        metrics=metrics or None,
+        durationSeconds=duration if isinstance(duration, int) and duration > 0 else None,
+        sourceRank=position,
         timestamp=get_time(row.get("pubdate")),
     )
 
@@ -253,7 +265,7 @@ async def _fetch_video_board(key: str, rid: int, no_cache: bool) -> dict:
     rows = (payload.get("data") or {}).get("list") or []
     return {
         "type": f"排行榜 · {VIDEO_RANKS[key][0]}",
-        "data": [_video_item(row) for row in rows],
+        "data": [_video_item(row, position=position) for position, row in enumerate(rows, start=1)],
         "from_cache": result.from_cache,
         "update_time": result.update_time,
     }

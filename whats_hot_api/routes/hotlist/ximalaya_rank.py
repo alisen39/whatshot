@@ -72,18 +72,30 @@ def _cover(path: object) -> str | None:
     return _IMAGE + path.lstrip("/")
 
 
-def _album_item(album: dict) -> ListItem:
+def _album_item(album: dict, position: int) -> ListItem:
     album_id = str(album.get("id") or "").strip()
     # 接口没有专辑发布时间(lastUptrackAtStr 是"3天前"这类模糊文字),timestamp 留空
+    sale_point = str(album.get("salePoint") or "").strip() or None
+    change = album.get("rankingPositionChange")
+    metrics: dict[str, int] = {}
+    if isinstance(change, int) and not isinstance(change, bool) and change != 0:
+        metrics["rankChange"] = change
+    tracks = album.get("trackCount")
+    if isinstance(tracks, int) and not isinstance(tracks, bool) and tracks > 0:
+        metrics["tracks"] = tracks
     return ListItem(
         id=album_id,
         title=str(album.get("albumTitle") or ""),
         url=f"{_SITE}/album/{album_id}",
         mobileUrl=f"{_MOBILE}/album/{album_id}",
         hot=album.get("playCount"),
+        hotLabel="播放",
         cover=_cover(album.get("cover")),
         author=str(album.get("anchorName") or "") or None,
         desc=str(album.get("description") or "") or None,
+        recommendationReason=sale_point,
+        metrics=metrics or None,
+        sourceRank=position,
     )
 
 
@@ -118,10 +130,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     rank = rank_list[0] if isinstance(rank_list[0], dict) else {}
     albums = rank.get("albums") if isinstance(rank.get("albums"), list) else []
     data_items: list[ListItem] = []
-    for album in albums:
+    for position, album in enumerate(albums, start=1):
         if not isinstance(album, dict) or not str(album.get("id") or "").strip():
             continue
-        data_items.append(_album_item(album))
+        data_items.append(_album_item(album, position))
     if not data_items:
         raise RuntimeError(f"Ximalaya rank {label} returned no items")
     # ids 是名次名单,albums 只含接口给出详情的条目;差值(已删除、下架、"围栏"专辑)

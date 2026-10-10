@@ -97,6 +97,7 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
             or text_or_none(author.get("display_name"))
             or text_or_none(it.get("global_channel_name"))
         )
+        score = it.get("score")
         data.append(
             NewsFlashItem(
                 id=str(it.get("id") or f"wallstreetcn-{len(data)}"),
@@ -114,6 +115,8 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
                     commentCount=to_int(it.get("comment_count")),
                     score=to_int(it.get("score")),
                 ),
+                # score>=2 在原站页面整条标红,score=1 或缺失是普通快讯
+                isImportant=isinstance(score, int) and not isinstance(score, bool) and score >= 2,
                 timestamp=get_time(it.get("display_time")),
                 url=uri,
                 mobileUrl=uri,

@@ -64,17 +64,44 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": [
-            ListItem(
-                id=v["bookInfo"]["bookId"],
-                title=v["bookInfo"]["title"],
-                author=v["bookInfo"].get("author"),
-                desc=v["bookInfo"].get("intro"),
-                cover=(v["bookInfo"].get("cover") or "").replace("s_", "t9_") or None,
-                timestamp=get_time(v["bookInfo"].get("publishTime")),
-                hot=v.get("readingCount"),
-                url=f"https://weread.qq.com/web/bookDetail/{get_weread_id(v['bookInfo']['bookId'])}",
-                mobileUrl=f"https://weread.qq.com/web/bookDetail/{get_weread_id(v['bookInfo']['bookId'])}",
-            )
-            for v in items
+            _book_item(v, position)
+            for position, v in enumerate(items, start=1)
         ],
     }
+
+
+def _book_item(row: dict, position: int) -> ListItem:
+    info = row["bookInfo"]
+    rating = info.get("newRating")
+    rating_count = info.get("newRatingCount")
+    wordmark = (info.get("newRatingDetail") or {}).get("title") if isinstance(info.get("newRatingDetail"), dict) else None
+    metrics: dict[str, int] = {}
+    if isinstance(rating, int) and rating > 0:
+        metrics["rating"] = rating  # 832 即 8.32 分
+    if isinstance(rating_count, int) and rating_count > 0:
+        metrics["ratingCount"] = rating_count
+    rise = row.get("riseCount")
+    if isinstance(rise, int) and not isinstance(rise, bool) and rise != 0:
+        metrics["rise"] = rise
+    badges: list[dict] = []
+    if wordmark:
+        badges.append({"text": str(wordmark)})
+    if info.get("finished") == 1:
+        badges.append({"text": "完结"})
+    book_id = info["bookId"]
+    detail_url = f"https://weread.qq.com/web/bookDetail/{get_weread_id(book_id)}"
+    return ListItem(
+        id=book_id,
+        title=info["title"],
+        author=info.get("author"),
+        desc=info.get("intro"),
+        cover=(info.get("cover") or "").replace("s_", "t9_") or None,
+        timestamp=get_time(info.get("publishTime")),
+        hot=row.get("readingCount"),
+        hotLabel="阅读",
+        badges=badges or [],
+        metrics=metrics or None,
+        sourceRank=position,
+        url=detail_url,
+        mobileUrl=detail_url,
+    )

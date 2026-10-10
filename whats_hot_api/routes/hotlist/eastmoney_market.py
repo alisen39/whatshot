@@ -296,7 +296,7 @@ async def _get_list(selected_type: str, no_cache: bool) -> dict[str, Any]:
 
     items = ((result.data or {}).get("data") or {}).get("diff") or []
     data: list[ListItem] = []
-    for item in items:
+    for position, item in enumerate(items, start=1):
         code = _text(item.get("f12"))
         name = _text(item.get("f14"))
         market = _integer(item.get("f13"))
@@ -309,6 +309,8 @@ async def _get_list(selected_type: str, no_cache: bool) -> dict[str, Any]:
                 title=name,
                 author=code,
                 desc=_description(item),
+                # 接口按 fid 排序返回,展示位置即排名;f 系列字段是 float,metrics 不收
+                sourceRank=position,
                 url=detail_url,
                 mobileUrl=detail_url,
             )
@@ -647,7 +649,7 @@ async def _get_sector_flow_list(
     )
     rows = ((result.data or {}).get("data") or {}).get("diff") or []
     data: list[ListItem] = []
-    for row in rows:
+    for position, row in enumerate(rows, start=1):
         code = _text(row.get("f12"))
         name = _text(row.get("f14"))
         if not code or not name:
@@ -666,6 +668,8 @@ async def _get_sector_flow_list(
                     leader_field,
                     leader_code_field,
                 ),
+                # 接口按 fid 排序返回,展示位置即排名;f 系列字段是 float,metrics 不收
+                sourceRank=position,
                 url=detail_url,
                 mobileUrl=detail_url,
             )

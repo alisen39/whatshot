@@ -56,11 +56,12 @@ async def _get_list(no_cache: bool) -> dict:
     videos = containers[0].get("video") if containers else []
     items = videos[0].get("data") if videos else []
     data: list[ListItem] = []
-    for item in items or []:
+    for position, item in enumerate(items or [], start=1):
         title = (item.get("title") or item.get("display_name") or "").strip()
         url_value = (item.get("page_url") or "").strip()
         if not title or not url_value:
             continue
+        duration = _positive_int(item.get("time_length"))
         data.append(
             ListItem(
                 id=str(item.get("entity_id") or item.get("tv_id") or url_value),
@@ -73,6 +74,11 @@ async def _get_list(no_cache: bool) -> dict:
                 author=_names(item.get("starring") or item.get("contributor")) or None,
                 desc=(item.get("desc") or item.get("description") or "").strip() or None,
                 hot=item.get("hot_score") or item.get("playCnt"),
+                hotLabel="热度",
+                badges=_corner_badges(item),
+                sourceRank=_positive_int(item.get("order")) or position,
+                metrics=_rank_metrics(item),
+                durationSeconds=duration,
                 timestamp=_show_date(item),
                 url=url_value,
                 mobileUrl=url_value,
@@ -105,3 +111,38 @@ def _show_date(item: dict) -> int | None:
         if year and month and day:
             return get_time(f"{int(year):04d}-{int(month):02d}-{int(day):02d}")
     return get_time(item.get("showDate"))
+
+
+_CORNER_MARK_LABELS = {
+    "exclusive": "独家",
+    "vip": "VIP",
+    "highDefinition": "高清",
+}
+
+
+def _corner_badges(item: dict) -> list[dict] | None:
+    # 只映射已知角标编码与源站给出的中文更新状态；未知编码不猜含义
+    badges: list[dict] = []
+    mark = str(item.get("cornerMark") or "").strip()
+    if mark in _CORNER_MARK_LABELS:
+        badges.append({"text": _CORNER_MARK_LABELS[mark]})
+    update_status = str(item.get("dq_updatestatus") or "").strip()
+    if update_status and update_status != "None":
+        badges.append({"text": update_status})
+    if str(item.get("pay_mark") or "") == "VIP_MARK":
+        badges.append({"text": "VIP"})
+    return badges or None
+
+
+def _rank_metrics(item: dict) -> dict[str, int] | None:
+    plays = item.get("playCnt")
+    return {"plays": plays} if isinstance(plays, int) and plays > 0 else None
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None

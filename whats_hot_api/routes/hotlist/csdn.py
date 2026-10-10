@@ -29,6 +29,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
             author=v.get("nickName"),
             timestamp=get_time(v.get("period")),
             hot=int(v.get("hotRankScore", 0)),
+            hotLabel="热度",
+            metrics=_count_metrics(v),
             url=v["articleDetailUrl"],
             mobileUrl=v["articleDetailUrl"],
         )
@@ -42,3 +44,16 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         updateTime=result.update_time,
         data=data,
     )
+
+
+def _count_metrics(row: dict) -> dict[str, int] | None:
+    # 阅读/评论/收藏计数接口回数字字符串,非正整数(含 0 与缺失)不进 metrics
+    metrics: dict[str, int] = {}
+    for source_key, metric_key in (("viewCount", "views"), ("commentCount", "comments"), ("favorCount", "favorites")):
+        try:
+            number = int(str(row.get(source_key)).strip())
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            metrics[metric_key] = number
+    return metrics or None

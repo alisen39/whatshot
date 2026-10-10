@@ -56,7 +56,7 @@ async def _get_list(country: str, no_cache: bool) -> dict:
     )
     items = result.data.get("feed", {}).get("results", [])
     data: list[ListItem] = []
-    for item in items:
+    for position, item in enumerate(items, start=1):
         item_id = str(item.get("id") or "").strip()
         title = str(item.get("name") or "").strip()
         item_url = str(item.get("url") or "").strip()
@@ -74,6 +74,9 @@ async def _get_list(country: str, no_cache: bool) -> dict:
                 author=item.get("artistName"),
                 desc="、".join(genres) or None,
                 cover=item.get("artworkUrl100"),
+                # 主分类(首个 genre)是条目唯一的原生标识;desc 里已有全部 genres
+                badges=[{"text": genres[0]}] if genres else [],
+                sourceRank=position,
                 url=item_url,
                 mobileUrl=item_url,
             )

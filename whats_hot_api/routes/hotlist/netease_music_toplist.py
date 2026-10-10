@@ -142,7 +142,7 @@ async def _get_board(board_id: int, label: str, no_cache: bool) -> dict:
         if isinstance(row, dict) and row.get("id")
     }
     await _backfill_details(label, no_cache, track_ids, songs)
-    items = [_item(songs[track_id]) for track_id in track_ids if track_id in songs]
+    items = [_item(songs[track_id], position) for position, track_id in enumerate(track_ids, start=1) if track_id in songs]
     if not items:
         raise RuntimeError(f"Netease music {label} (id={board_id}) returned no resolvable songs")
     lost = len(track_ids) - len(items)
@@ -206,7 +206,7 @@ def _text(value: object) -> str:
     return " ".join(str(value or "").split())
 
 
-def _item(song: dict) -> ListItem:
+def _item(song: dict, position: int) -> ListItem:
     """v6 tracks 与 v3 song/detail 用 ar/al,旧 song/detail 用 artists/album,两种都认。"""
     song_id = song["id"]
     album = song.get("al") or song.get("album") or {}
@@ -218,6 +218,9 @@ def _item(song: dict) -> ListItem:
     # publishTime 是发行时间(毫秒);传秒让 models 校验器统一 ×1000——直接传毫秒会让
     # 2001-09 以前发行的歌(毫秒值 < 10^12)被当成秒再放大 1000 倍(board_api 推翻性验证 #12)
     publish_time = song.get("publishTime") or 0
+    # dt 是时长(毫秒);pop 是站内热度 0-100
+    duration = song.get("dt")
+    pop = song.get("pop")
     return ListItem(
         id=song_id,
         title=_text(song.get("name")),
@@ -226,5 +229,8 @@ def _item(song: dict) -> ListItem:
         cover=_https(album.get("picUrl")),
         author="/".join(name for name in artists if name) or None,
         desc=_text(album.get("name")) or None,
+        durationSeconds=duration // 1000 if isinstance(duration, int) and duration > 0 else None,
+        metrics={"pop": pop} if isinstance(pop, int) and pop > 0 else None,
+        sourceRank=position,  # trackIds 顺序即榜单名次
         timestamp=publish_time // 1000 if publish_time > 0 else None,
     )

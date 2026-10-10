@@ -263,7 +263,7 @@ def _entry_cover(entry: dict[str, Any]) -> str | None:
     return str(max(images, key=height)["label"]) if images else None
 
 
-def _parse_rss_entry(entry: dict[str, Any]) -> ListItem | None:
+def _parse_rss_entry(entry: dict[str, Any], position: int) -> ListItem | None:
     ident = str(((entry.get("id") or {}).get("attributes") or {}).get("im:id") or "").strip()
     title = _label(entry, "im:name")
     url = _entry_link(entry)
@@ -279,6 +279,7 @@ def _parse_rss_entry(entry: dict[str, Any]) -> ListItem | None:
         cover=_entry_cover(entry),
         author=_label(entry, "im:artist") or None,
         desc=" · ".join(part for part in (category, price) if part) or None,
+        sourceRank=position,  # RSS 无显式名次键，feed 顺序即榜单名次
         # im:releaseDate 是 App 首次上架时间，一律当天 0 点 -07:00（不区分夏令时）
         timestamp=get_time(_label(entry, "im:releaseDate")),
     )
@@ -292,7 +293,15 @@ async def _fetch_rss(board: _Board, no_cache: bool) -> tuple[list[ListItem], boo
         raise ValueError(f"App Store RSS {board.url} 不是 iTunes RSS JSON")  # noqa: TRY004 - upstream shape problem
     entries = feed.get("entry") or []  # 0 条时没有 entry 键（board_api 证据：toppaidmacapps 200 且 0 条）
     entries = [entries] if isinstance(entries, dict) else entries  # 只有 1 条时 entry 是对象
-    items = [item for item in (_parse_rss_entry(entry) for entry in entries if isinstance(entry, dict)) if item]
+    items = [
+        item
+        for item in (
+            _parse_rss_entry(entry, position)
+            for position, entry in enumerate(entries, start=1)
+            if isinstance(entry, dict)
+        )
+        if item
+    ]
     if len(items) != len(entries):
         raise ValueError(
             f"App Store RSS {board.url} 有 {len(entries) - len(items)} 条缺 id / 名称 / 链接，RSS 结构可能变了"

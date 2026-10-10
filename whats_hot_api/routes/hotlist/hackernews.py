@@ -82,7 +82,10 @@ async def _get_list(board_type: str, no_cache: bool) -> dict[str, Any]:
     )
     data = [
         item
-        for item in (_item_from_row(result.data, board_type) for result in results)
+        for item in (
+            _item_from_row(result.data, board_type, position)
+            for position, result in enumerate(results, start=1)
+        )
         if item is not None
     ]
     return {
@@ -106,7 +109,7 @@ def _valid_ids(value: Any) -> list[int]:
     return ids
 
 
-def _item_from_row(row: Any, board_type: str) -> ListItem | None:
+def _item_from_row(row: Any, board_type: str, position: int) -> ListItem | None:
     expected_type = "job" if board_type == "jobs" else "story"
     if not isinstance(row, dict) or row.get("type") != expected_type:
         return None
@@ -125,8 +128,10 @@ def _item_from_row(row: Any, board_type: str) -> ListItem | None:
         id=str(item_id),
         title=title,
         author=str(row.get("by") or "").strip() or None,
-        desc=(f"评论：{comments}" if isinstance(comments, int) and comments >= 0 else None),
         hot=row.get("score") if isinstance(row.get("score"), int) else None,
+        hotLabel="points",
+        metrics={"comments": comments} if isinstance(comments, int) and comments >= 0 else None,
+        sourceRank=None if board_type == "new" else position,
         timestamp=get_time(row.get("time")),
         url=url,
         mobileUrl=url,

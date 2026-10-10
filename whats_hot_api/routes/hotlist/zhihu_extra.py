@@ -83,11 +83,37 @@ async def _get_hot_search(no_cache: bool) -> dict:
         if redirect.lower().startswith(("https://", "http://")):
             url = re.sub(r"[?&]request_click_id=[^&]*", "", redirect).rstrip("?&")
         items.append(
-            ListItem(id=word, title=q.get("query") or word, url=url, mobileUrl=url, hot=q.get("hot"))
+            ListItem(
+                id=word,
+                title=q.get("query") or word,
+                url=url,
+                mobileUrl=url,
+                hot=q.get("hot"),
+                badges=_search_badge(q),
+            )
         )
     if not items:
         raise RuntimeError("Zhihu hot search returned no items")
     return {"from_cache": fetched["from_cache"], "update_time": fetched["update_time"], "data": items}
+
+
+def _search_badge(q: dict) -> list[dict]:
+    # 已知 label(hot/new)用固定文案,图标非 http(s) 链接时不带图;
+    # 其他 label 只在有图标时透传 code,不造文案;两者都没有就是无标识
+    label = str(q.get("label") or "").strip()
+    icon = str(q.get("icon_url") or "").strip()
+    icon = icon if icon.startswith(("http://", "https://")) else ""
+    if label in _SEARCH_BADGE_LABELS:
+        badge = {"text": _SEARCH_BADGE_LABELS[label]}
+        if icon:
+            badge["imageUrl"] = icon
+        return [badge]
+    if icon:
+        return [{"code": label or None, "imageUrl": icon}]
+    return []
+
+
+_SEARCH_BADGE_LABELS = {"hot": "热", "new": "新"}
 
 
 async def _get_pin_news(no_cache: bool) -> dict:

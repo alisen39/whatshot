@@ -73,12 +73,19 @@ def _package_item(row: object, rank: int) -> ListItem | None:
         desc_parts.append(f"累计下载：{downloads:,}")
     if favers is not None:
         desc_parts.append(f"收藏：{favers:,}")
+    # 下载/收藏计数只收正整数,0 与缺失不进 metrics
+    metrics: dict[str, int] = {}
+    for value, metric_key in ((row.get("downloads"), "downloads"), (row.get("favers"), "favers")):
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[metric_key] = value
 
     return ListItem(
         id=name,
         title=name,
         desc=" · ".join(desc_parts),
         hot=downloads,
+        metrics=metrics or None,
+        sourceRank=rank,
         url=url,
         mobileUrl=url,
     )

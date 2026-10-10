@@ -127,7 +127,8 @@ def _parse_board(page: str) -> tuple[list[ListItem], list[str]]:
         if rank_tag is None or name_tag is None:
             continue
         # 名次先记下（含被去重跳过的行），用于核对页面名次是否连续
-        ranks.append(int(rank_tag.get_text(strip=True) or 0))
+        rank = int(rank_tag.get_text(strip=True) or 0)
+        ranks.append(rank)
         mid_match = re.search(r"/films/(\d+)", name_tag.get("href") or "")
         title = _text(name_tag.get_text())
         if not mid_match or not title or mid_match.group(1) in seen:
@@ -156,6 +157,8 @@ def _parse_board(page: str) -> tuple[list[ListItem], list[str]]:
                 mobileUrl=f"https://m.maoyan.com/asgard/movie/{mid}",
                 cover=cover or None,
                 desc=" · ".join(part for part in parts if part) or None,
+                # 页面 board-index 名次即榜单位置
+                sourceRank=rank or None,
                 timestamp=_release_timestamp(release_text),
             )
         )

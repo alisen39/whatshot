@@ -87,17 +87,28 @@ async def _get_list(type_param: str, range_param: str, no_cache: bool) -> dict:
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
-        "data": [_build_item(v) for v in items],
+            "data": [_build_item(v, position) for position, v in enumerate(items, start=1)],
     }
 
 
-def _build_item(v: dict) -> ListItem:
+def _build_item(v: dict, position: int) -> ListItem:
     # 文章条目没有 dougaId/likeCount,用 contentId 拼 /a/ac 链接、viewCount 作热度(页面卡片显示的阅读数)
     is_article = not v.get("dougaId")
     ac_id = v.get("contentId") if is_article else v["dougaId"]
     desc = v.get("contentDesc")
     if is_article and desc:
         desc = _TAG_RE.sub("", desc).strip()
+    metrics: dict[str, int] = {}
+    for key in ("viewCount", "likeCount", "commentCount", "danmakuCount", "shareCount", "stowCount", "bananaCount"):
+        value = v.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            metrics[key] = value
+    duration_ms = v.get("durationMillis")
+    tags = [
+        {"text": str(tag.get("name")).strip()}
+        for tag in v.get("tagList") or []
+        if isinstance(tag, dict) and str(tag.get("name") or "").strip()
+    ]
     return ListItem(
         id=ac_id,
         title=v["contentTitle"],
@@ -106,6 +117,11 @@ def _build_item(v: dict) -> ListItem:
         author=v.get("userName"),
         timestamp=get_time(v.get("contributeTime")),
         hot=v.get("viewCount") if is_article else v.get("likeCount"),
+        hotLabel="阅读" if is_article else "点赞",
+        metrics=metrics or None,
+        durationSeconds=(duration_ms // 1000) if isinstance(duration_ms, int) and duration_ms > 0 else None,
+        badges=tags or [],
+        sourceRank=position,
         url=f"https://www.acfun.cn/{'a' if is_article else 'v'}/ac{ac_id}",
         mobileUrl=v.get("shareUrl") or f"https://m.acfun.cn/v/?ac={ac_id}",
     )

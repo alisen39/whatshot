@@ -175,7 +175,7 @@ async def _fetch_chart(path_type: str, no_cache: bool) -> dict:
     for edge in sorted(edges, key=lambda item: item.get("currentRank") or 0):
         node = edge.get("node") or {}
         votes = (node.get("ratingsSummary") or {}).get("voteCount")
-        items.append(_item(node, votes if path_type in _RATING_CHARTS else None))
+        items.append(_item(node, votes if path_type in _RATING_CHARTS else None, rank=edge.get("currentRank")))
     return {"from_cache": from_cache, "update_time": update_time, "data": items}
 
 
@@ -231,7 +231,7 @@ def _money(amount: Any) -> str | None:
     return f"${amount:,}" if isinstance(amount, int) else None
 
 
-def _item(node: dict[str, Any], hot: Any, extra: list[str | None] | None = None) -> ListItem:
+def _item(node: dict[str, Any], hot: Any, extra: list[str | None] | None = None, rank: Any = None) -> ListItem:
     title_id = str(node.get("id") or "").strip()
     if not title_id:
         raise RuntimeError("IMDb GraphQL node is missing its tconst id")
@@ -247,6 +247,9 @@ def _item(node: dict[str, Any], hot: Any, extra: list[str | None] | None = None)
         (((node.get("plot") or {}).get("plotText")) or {}).get("plainText"),
     ]
     desc = " · ".join(part for part in parts if part) or None
+    # 分级标记(R/PG-13 等)是条目唯一的原生标识,desc 里已有一份
+    certificate = str((node.get("certificate") or {}).get("rating") or "").strip()
+    seconds = (node.get("runtime") or {}).get("seconds")
     return ListItem(
         id=title_id,
         title=((node.get("titleText") or {}).get("text") or "").strip() or title_id,
@@ -254,5 +257,9 @@ def _item(node: dict[str, Any], hot: Any, extra: list[str | None] | None = None)
         mobileUrl=url,
         hot=hot,
         cover=(node.get("primaryImage") or {}).get("url"),
+        badges=[{"text": certificate}] if certificate else [],
+        metrics={"votes": votes} if isinstance(votes, int) and not isinstance(votes, bool) and votes > 0 else None,
+        durationSeconds=seconds if isinstance(seconds, int) and not isinstance(seconds, bool) and seconds > 0 else None,
+        sourceRank=rank if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0 else None,
         desc=desc,
     )

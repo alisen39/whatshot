@@ -1,0 +1,48 @@
+[
+ {
+  "period": "2026-10-10-23",
+  "hotRankScore": "14912",
+  "pcHotRankScore": "1.5w",
+  "loginUserIsFollow": false,
+  "nickName": "枫叶丹4",
+  "avatarUrl": "https://profile-avatar.csdnimg.cn/654a42cc8d824812a9f4dffcc0a1b3a0_weixin_74809706.jpg!1",
+  "userName": "weixin_74809706",
+  "articleTitle": "语音 AI 怎样边听边答：实时对话系统的工作原理",
+  "articleDetailUrl": "https://blog.csdn.net/weixin_74809706/article/details/167222468",
+  "commentCount": "17",
+  "favorCount": "23",
+  "viewCount": "143",
+  "hotComment": null,
+  "picList": [
+   "https://i-blog.csdnimg.cn/direct/632886a287ef4296a00952902b261739.png"
+  ],
+  "isNew": null,
+  "productId": "167222468",
+  "productType": "blog",
+  "recommendType": "ali",
+  "report_data": null
+ },
+ {
+  "period": "2026-10-10-23",
+  "hotRankScore": "14388",
+  "pcHotRankScore": "1.4w",
+  "loginUserIsFollow": false,
+  "nickName": "Brookty",
+  "avatarUrl": "https://i-avatar.csdnimg.cn/342b5a3e94c141388f739ae50a5f8e59_2401_86112610.jpg!1",
+  "userName": "2401_86112610",
+  "articleTitle": "资源分层关闭体系、TCP连接存活探测与负载均衡机制介绍",
+  "articleDetailUrl": "https://blog.csdn.net/2401_86112610/article/details/167277744",
+  "commentCount": "82",
+  "favorCount": "33",
+  "viewCount": "485",
+  "hotComment": null,
+  "picList": [
+   "https://i-blog.csdnimg.cn/direct/f5658ef79bb842668c70579fa5c653a9.png"
+  ],
+  "isNew": null,
+  "productId": "167277744",
+  "productType": "blog",
+  "recommendType": "ali",
+  "report_data": null
+ }
+]

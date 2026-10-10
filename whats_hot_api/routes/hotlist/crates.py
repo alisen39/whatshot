@@ -112,11 +112,18 @@ def _crate_item(row: object, rank: int, board_type: str) -> ListItem | None:
         timestamp = None
     hot = recent_downloads if board_type == "recent-downloads" else downloads
     url = f"https://crates.io/crates/{crate_id}"
+    # 累计/近期下载计数只收正整数,0 与缺失不进 metrics
+    metrics: dict[str, int] = {}
+    for value, metric_key in ((row.get("downloads"), "downloads"), (row.get("recent_downloads"), "recentDownloads")):
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            metrics[metric_key] = value
     return ListItem(
         id=crate_id,
         title=name,
         desc=" · ".join(desc_parts),
         hot=hot,
+        metrics=metrics or None,
+        sourceRank=rank,
         timestamp=timestamp,
         url=url,
         mobileUrl=url,
