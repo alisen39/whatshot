@@ -223,3 +223,46 @@ async def test_empty_song_list_is_rejected(monkeypatch):
 def test_unknown_board_is_rejected():
     with pytest.raises(ValueError, match="Unknown board"):
         asyncio.run(qqmusic_toplist.handle_route(_request("not-exist"), no_cache=True))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("board", ["hot", "soaring", "new", "popular-index"])
+async def test_native_rank_metadata_is_joined_from_rank_rows(monkeypatch, board):
+    # 详情乱序且含冲突值,名次字段必须取 song[];缺详情不得压缩原生名次。
+    ranks = [dict(_RANKS[0], rank=3, rankType=2, rankValue="7"),
+             _rank(999999, "下架", "X", 4),
+             dict(_RANKS[1], rank=8, rankType=1, rankValue="12")]
+    infos = [dict(info, rank=99, rankValue="999") for info in reversed(_INFOS)]
+    _install_get(monkeypatch, _detail_payload(ranks, infos, total_num=3))
+    result = await qqmusic_toplist.handle_route(_request(board), no_cache=True)
+    assert [item.id for item in result.data] == [info["mid"] for info in _INFOS]
+    assert [item.sourceRank for item in result.data] == [3, 8]
+    assert [item.metrics for item in result.data] == [{"rankDown": 7}, {"rankUp": 12}]
+    assert all(item.hot is None for item in result.data)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value,rank_type,expected", [
+    ("107%", 1, {"rankGrowthPercent": 107}),
+    (" 8 ", 1, {"rankUp": 8}), (6, 2, {"rankDown": 6}),
+    ("0", 3, None), ("0", 4, None), ("5", 99, None),
+    (None, 1, None), (True, 1, None), ("NaN", 1, None),
+    ("Infinity", 1, None), ("-1", 2, None), ("1.5", 1, None),
+    ("2.5%", 1, None), ({}, 1, None),
+    ("5", [], None), ("5", True, None), ("5", "1", None),
+])
+async def test_rank_change_units_and_invalid_values(monkeypatch, value, rank_type, expected):
+    rank = dict(_RANKS[0], rankValue=value, rankType=rank_type)
+    _install_get(monkeypatch, _detail_payload([rank], [_INFOS[0]], total_num=1))
+    item = (await qqmusic_toplist.handle_route(_request("hot"))).data[0]
+    assert item.metrics == expected
+    assert item.hot is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rank", [None, True, "bad", 1.5, 0, -1])
+async def test_missing_native_rank_falls_back_to_unfiltered_row_position(monkeypatch, rank):
+    ranks = [_rank(999999, "缺详情", "X", 1), dict(_RANKS[0], rank=rank)]
+    _install_get(monkeypatch, _detail_payload(ranks, [_INFOS[0]], total_num=2))
+    result = await qqmusic_toplist.handle_route(_request("hot"))
+    assert result.data[0].sourceRank == 2

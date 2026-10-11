@@ -12,7 +12,8 @@
   歌曲详情,两者按 ``song[i].songId == songInfoList[i].id`` 对齐;对不上的名次跳过并
   写入 message,不让整个榜报错。
 - ``song[].cover`` 只有前 3 名有值,不能用;封面按网页脚本的取法从 ``songInfoList`` 拼。
-- ``rankValue`` 是 "0" 或涨幅百分比,不是热度值,``hot`` 留空。
+- ``rank``、``rankType``、``rankValue`` 来自名次行,不在歌曲详情里。
+  普通数字表示升降名次数,带 % 的值表示涨幅,不能当热度值,``hot`` 留空。
 """
 from __future__ import annotations
 
@@ -94,7 +95,7 @@ async def _get_board(top_id: int, label: str, no_cache: bool) -> dict:
         if isinstance(info, dict) and info.get("id") is not None
     }
     items = [
-        _item(infos[rank["songId"]], position)
+        _item(infos[rank["songId"]], rank, position)
         for position, rank in enumerate(ranks, start=1)
         if isinstance(rank, dict) and rank.get("songId") in infos and infos[rank["songId"]].get("mid")
     ]
@@ -144,7 +145,7 @@ def _timestamp(day: object) -> int | None:
     return seconds if seconds > 0 else None
 
 
-def _item(info: dict, position: int) -> ListItem:
+def _item(info: dict, rank: dict, position: int) -> ListItem:
     mid = info["mid"]
     album = info.get("album") or {}
     singers = [
@@ -152,14 +153,6 @@ def _item(info: dict, position: int) -> ListItem:
         for singer in info.get("singer") or []
         if isinstance(singer, dict)
     ]
-    # 名次行的 rankValue:"0"=名次不变,其他值是涨幅百分比(接口注释口径)
-    rank_value = str(info.get("rankValue") or "").strip()
-    metrics = None
-    if rank_value not in ("", "0"):
-        try:
-            metrics = {"rankChange": int(float(rank_value))}
-        except ValueError:
-            metrics = None
     return ListItem(
         id=mid,
         # title 带版本后缀(如"出现又离开 (Live)"),与网页、tophub 一致;name 不带后缀,不用
@@ -169,15 +162,36 @@ def _item(info: dict, position: int) -> ListItem:
         cover=_cover(info),
         author="/".join(name for name in singers if name) or None,
         desc=str(album.get("title") or album.get("name") or "").strip() or None,
-        sourceRank=_positive_int(info.get("rank")) or position,
-        metrics=metrics,
+        sourceRank=_positive_int(rank.get("rank")) or position,
+        metrics=_rank_metrics(rank),
         timestamp=_timestamp(info.get("time_public")),
     )
 
 
 def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
     try:
         number = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
     return number if number > 0 else None
+
+
+def _rank_metrics(rank: dict) -> dict[str, int] | None:
+    value = rank.get("rankValue")
+    if not isinstance(value, (str, int)) or isinstance(value, bool):
+        return None
+    raw = str(value).strip()
+    percent = raw.endswith("%")
+    number = _positive_int(raw[:-1] if percent else raw)
+    if number is None:
+        return None
+    if percent:
+        return {"rankGrowthPercent": number}
+    # 非负整数 metrics 不能用负数表示下降,用不同键保留方向和单位。
+    direction = rank.get("rankType")
+    if not isinstance(direction, int) or isinstance(direction, bool):
+        return None
+    key = {1: "rankUp", 2: "rankDown"}.get(direction)
+    return {key: number} if key else None

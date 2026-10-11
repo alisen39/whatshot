@@ -72,7 +72,7 @@ def _cover(path: object) -> str | None:
     return _IMAGE + path.lstrip("/")
 
 
-def _album_item(album: dict, position: int) -> ListItem:
+def _album_item(album: dict, position: int | None) -> ListItem:
     album_id = str(album.get("id") or "").strip()
     # 接口没有专辑发布时间(lastUptrackAtStr 是"3天前"这类模糊文字),timestamp 留空
     sale_point = str(album.get("salePoint") or "").strip() or None
@@ -129,16 +129,21 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         )
     rank = rank_list[0] if isinstance(rank_list[0], dict) else {}
     albums = rank.get("albums") if isinstance(rank.get("albums"), list) else []
+    rank_ids = rank.get("ids") if isinstance(rank.get("ids"), list) else []
+    positions: dict[str, int] = {}
+    for position, album_id in enumerate(rank_ids, start=1):
+        positions.setdefault(str(album_id), position)
     data_items: list[ListItem] = []
-    for position, album in enumerate(albums, start=1):
+    for album in albums:
         if not isinstance(album, dict) or not str(album.get("id") or "").strip():
             continue
-        data_items.append(_album_item(album, position))
+        data_items.append(_album_item(album, positions.get(str(album["id"]))))
+    # 按原始名次名单输出;缺详情的名次留缺号,无名单的详情不虚构原生排名。
+    data_items.sort(key=lambda item: item.sourceRank or len(rank_ids) + 1)
     if not data_items:
         raise RuntimeError(f"Ximalaya rank {label} returned no items")
     # ids 是名次名单,albums 只含接口给出详情的条目;差值(已删除、下架、"围栏"专辑)
     # 是上游常态而非错误,写进 message 备查(board_api 全量核对,verify/full_count_check.log)
-    rank_ids = rank.get("ids") if isinstance(rank.get("ids"), list) else []
     dropped = len(rank_ids) - len(data_items)
     message = (
         f"{rank.get('title') or label}:名次名单 {len(rank_ids)} 个,其中 {dropped} 个"

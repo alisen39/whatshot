@@ -112,7 +112,7 @@ async def test_default_board_and_cover_variants(monkeypatch):
 async def test_dropped_ids_reported_in_message(monkeypatch):
     # 证据:free-toutiao 名次名单 50 个、albums 49 条(1 个已删除),差额写进 message
     payload = _toutiao_payload()
-    payload["data"]["rankList"][0]["ids"] = list(range(30000001, 30000004))
+    payload["data"]["rankList"][0]["ids"] = [30140766, 99999999, 12580785]
 
     async def fake_get(url, params=None, headers=None, no_cache=None, **kwargs):
         return RequestResult(False, "t", payload)
@@ -123,6 +123,7 @@ async def test_dropped_ids_reported_in_message(monkeypatch):
     assert result.message is not None
     assert "名次名单 3 个" in result.message
     assert "1 个接口不给详情" in result.message
+    assert [item.sourceRank for item in result.data] == [1, 3]
 
 
 @pytest.mark.asyncio
@@ -177,3 +178,41 @@ def test_unknown_board_is_rejected():
         import asyncio
 
         asyncio.run(ximalaya_rank.handle_route(_request("not-exist"), no_cache=True))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ids,expected", [
+    ([99999999, 30140766, 12580785], [2, 3]),
+    ([30140766, 99999999, 12580785], [1, 3]),
+    ([30140766, 12580785, 99999999], [1, 2]),
+    (["30140766", "99999999", "12580785"], [1, 3]),
+])
+async def test_native_ids_preserve_gaps_and_order_with_shuffled_details(monkeypatch, ids, expected):
+    payload = _toutiao_payload()
+    rank = payload["data"]["rankList"][0]
+    rank["ids"] = ids
+    rank["albums"].reverse()
+
+    async def fake_get(**kwargs):
+        return RequestResult(False, "2026-10-11T00:00:00Z", payload)
+
+    monkeypatch.setattr(ximalaya_rank, "get", fake_get)
+    result = await ximalaya_rank.handle_route(_request("free-toutiao"))
+    assert [item.id for item in result.data] == ["30140766", "12580785"]
+    assert [item.sourceRank for item in result.data] == expected
+    assert result.total == 2
+    assert "1 个接口不给详情" in result.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ids", [None, [], [99999999]])
+async def test_unlisted_details_do_not_invent_native_ranks(monkeypatch, ids):
+    payload = _toutiao_payload()
+    payload["data"]["rankList"][0]["ids"] = ids
+
+    async def fake_get(**kwargs):
+        return RequestResult(False, "t", payload)
+
+    monkeypatch.setattr(ximalaya_rank, "get", fake_get)
+    result = await ximalaya_rank.handle_route(_request("free-toutiao"))
+    assert [item.sourceRank for item in result.data] == [None, None]
