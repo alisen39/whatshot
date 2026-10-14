@@ -11,6 +11,14 @@ from starlette.requests import Request
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get, post
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    unsupported,
+)
 
 ROUTE_NAME = "exchange-regulator-news"
 
@@ -158,8 +166,9 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-def _finish(result: Any, items: list[ListItem], board: str) -> dict:
-    if not items:
+def _finish(result: Any, items: list[ListItem], board: str, page: int = 1) -> dict:
+    # An empty history page is the end of the archive, not a broken source.
+    if not items and page == 1:
         raise RuntimeError(f"exchange-regulator-news {board} returned no valid rows")
     return {"from_cache": result.from_cache, "update_time": result.update_time, "data": items}
 
@@ -195,10 +204,10 @@ async def _fetch_sse(no_cache: bool) -> dict:
     return _finish(result, items, "sse-latest-rules")
 
 
-def _neeq_form(site: str, node: str, extra: dict[str, str]) -> str:
+def _neeq_form(site: str, node: str, extra: dict[str, str], page: int = 1) -> str:
     # 与页面 neeqNews.min.js 相同的表单(jQuery 把数组序列化成 nodeIds[]、needFields[])
     pairs: list[tuple[str, str]] = [
-        ("page", "0"),
+        ("page", str(page - 1)),  # 0-based upstream
         ("pageSize", "20"),
         ("keywords", ""),
         ("startTime", ""),
@@ -217,7 +226,7 @@ def _parse_jsonp(text: str) -> Any:
     return json.loads(text[start + 1 : end])
 
 
-async def _fetch_neeq(board: str, no_cache: bool) -> dict:
+async def _fetch_neeq(board: str, no_cache: bool, *, page: int = 1) -> dict:
     site, node, extra = _NEEQ_SITES[board]
     url = f"{site}/info/listse.do"
     headers = {
@@ -227,8 +236,8 @@ async def _fetch_neeq(board: str, no_cache: bool) -> dict:
         "Referer": f"{site}/news/important_news.html",
         "Content-Type": _FORM_HEADERS["Content-Type"],
     }
-    body = _neeq_form(site, node, extra)
-    cache_key = f"exchange-regulator-news:{board}"
+    body = _neeq_form(site, node, extra, page)
+    cache_key = f"exchange-regulator-news:{board}" + (f":{page}" if page > 1 else "")
     result = await post(url=url, headers=headers, body=body, no_cache=no_cache, response_type="text", cache_key=cache_key)
     text = result.data if isinstance(result.data, str) else ""
     try:
@@ -276,7 +285,7 @@ async def _fetch_neeq(board: str, no_cache: bool) -> dict:
                 timestamp=get_time(str(row.get("publishDate") or "")[:19]),
             )
         )
-    return _finish(result, items, board)
+    return _finish(result, items, board, page)
 
 
 def _cnstock_timestamp(share: dict) -> int | None:
@@ -291,7 +300,7 @@ def _cnstock_timestamp(share: dict) -> int | None:
     return get_time(text)
 
 
-async def _fetch_cnstock(no_cache: bool) -> dict:
+async def _fetch_cnstock(no_cache: bool, *, page: int = 1) -> dict:
     board = "cnstock-latest"
     home = await get(
         url=_CNSTOCK_HOME,
@@ -323,11 +332,11 @@ async def _fetch_cnstock(no_cache: bool) -> dict:
     channel_filter = (channels_payload.get("data") or {}).get("filterIdArray") or []
     result = await post(
         url=f"{_CNSTOCK_API}/waterfallPage",
-        body={"filterIdArray": [*home_filter, *channel_filter], "pageNum": 1},
+        body={"filterIdArray": [*home_filter, *channel_filter], "pageNum": page},
         headers=_CNSTOCK_HEADERS,
         no_cache=no_cache,
         response_type="json",
-        cache_key=f"exchange-regulator-news:{board}",
+        cache_key=f"exchange-regulator-news:{board}" + (f":{page}" if page > 1 else ""),
     )
     payload = result.data if isinstance(result.data, dict) else {}
     if payload.get("code") != 200:
@@ -359,7 +368,7 @@ async def _fetch_cnstock(no_cache: bool) -> dict:
                 timestamp=_cnstock_timestamp(share),
             )
         )
-    return _finish(result, items, board)
+    return _finish(result, items, board, page)
 
 
 def _mi4_array(text: str, name: str) -> list[dict[str, Any]]:
@@ -368,6 +377,42 @@ def _mi4_array(text: str, name: str) -> list[dict[str, Any]]:
         raise RuntimeError(f"exchange-regulator-news cs data file {name} has no MI4_PAGE_ARTICLE (format changed)")
     rows = json.loads(match.group(1))
     return rows if isinstance(rows, list) else []
+
+
+async def _fetch_cs_day(day_index: int) -> dict:
+    """History page N = the N-th per-day data file of PAGE_INDEX_MAP (newest first)."""
+    board = "cs-finance"
+    guide = await get(url=f"{_CS_BASE}mi4_page_articles_guide.js", no_cache=True,
+                      response_type="text", headers=_JS_HEADERS)
+    match = _CS_INDEX_RE.search(guide.data or "")
+    if match is None:
+        raise RuntimeError("exchange-regulator-news cs guide file has no PAGE_INDEX_MAP (format changed)")
+    index = json.loads(match.group(1))
+    if str(day_index) not in index:
+        return {"from_cache": False, "update_time": guide.update_time, "data": [], "exhausted": True}
+    name = index[str(day_index)]
+    day = await get(url=f"{_CS_BASE}{name}", no_cache=True, response_type="text", headers=_JS_HEADERS)
+    items = [_cs_item(row) for row in _mi4_array(day.data or "", name)]
+    items = [item for item in items if item is not None]
+    return {"from_cache": False, "update_time": day.update_time, "data": items, "board": board}
+
+
+def _cs_item(row: dict[str, Any]) -> ListItem | None:
+    url = str(row.get("external_link") or "").strip() or str(row.get("url") or "").strip()
+    if not url:
+        return None
+    site_match = _CS_DETAIL_ID.search(url)
+    jnz_match = _CS_JNZ_ID.search(url)
+    item_id = site_match.group(1) if site_match else (f"jnz-{jnz_match.group(1)}" if jnz_match else url)
+    return ListItem(
+        id=item_id,
+        title=str(row.get("title") or "").strip(),
+        url=url,
+        author=row.get("pubAuthor") or None,
+        desc=row.get("miSummary") or None,
+        cover=row.get("miCover43") or row.get("miCover169") or None,
+        timestamp=get_time(str(row.get("pubDateShow") or row.get("pub_date") or "")[:16]),
+    )
 
 
 async def _fetch_cs(no_cache: bool) -> dict:
@@ -408,37 +453,23 @@ async def _fetch_cs(no_cache: bool) -> dict:
     items: list[ListItem] = []
     seen: set[str] = set()
     for row in rows[:_CS_FIRST_SCREEN]:
-        url = str(row.get("external_link") or "").strip() or str(row.get("url") or "").strip()
-        if not url or url in seen:
+        item = _cs_item(row)
+        if item is None or item.url in seen:
             continue
-        seen.add(url)
-        # 站内文章 detail_<id>.html;外链到金牛座的两套编号不混,加 jnz- 前缀
-        site_match = _CS_DETAIL_ID.search(url)
-        jnz_match = _CS_JNZ_ID.search(url)
-        item_id = site_match.group(1) if site_match else (f"jnz-{jnz_match.group(1)}" if jnz_match else url)
-        items.append(
-            ListItem(
-                id=item_id,
-                title=str(row.get("title") or "").strip(),
-                url=url,
-                author=row.get("pubAuthor") or None,
-                desc=row.get("miSummary") or None,
-                cover=row.get("miCover43") or row.get("miCover169") or None,
-                timestamp=get_time(str(row.get("pubDateShow") or row.get("pub_date") or "")[:16]),
-            )
-        )
+        seen.add(item.url)
+        items.append(item)
     return _finish(latest, items, board)
 
 
-async def _fetch_chinamoney(board: str, no_cache: bool) -> dict:
+async def _fetch_chinamoney(board: str, no_cache: bool, *, page_no: int = 1) -> dict:
     path, channel, page = _CM_BOARDS[board]
     result = await post(
         url=f"{_CM_SITE}/ags/ms/cm-s-notice-query/{path}",
         headers={**_JSON_HEADERS, **_FORM_HEADERS, "X-Requested-With": "XMLHttpRequest", "Referer": _CM_SITE + page},
-        body=urlencode([("pageNo", "1"), ("pageSize", "15"), ("channelId", channel)]),
+        body=urlencode([("pageNo", str(page_no)), ("pageSize", "15"), ("channelId", channel)]),
         no_cache=no_cache,
         response_type="json",
-        cache_key=f"exchange-regulator-news:{board}",
+        cache_key=f"exchange-regulator-news:{board}" + (f":{page_no}" if page_no > 1 else ""),
     )
     payload = result.data if isinstance(result.data, dict) else {}
     if (payload.get("head") or {}).get("rep_code") != "200" or not isinstance(payload.get("records"), list):
@@ -459,7 +490,7 @@ async def _fetch_chinamoney(board: str, no_cache: bool) -> dict:
                 timestamp=get_time(str(row.get("releaseDate") or "")[:10]),
             )
         )
-    return _finish(result, items, board)
+    return _finish(result, items, board, page_no)
 
 
 async def _fetch_nifd(board: str, no_cache: bool) -> dict:
@@ -493,3 +524,78 @@ async def _fetch_nifd(board: str, no_cache: bool) -> dict:
             )
         )
     return _finish(result, items, board)
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """北交所/股转 ``page``(0 起)、上证报 ``pageNum``、货币网 ``pageNo``；中证网按日数据文件逐个翻。"""
+    page = int(decode_cursor(cursor).get("page") or 1)
+    if path_type in _NEEQ_SITES:
+        rows = await _fetch_neeq(path_type, True, page=page)
+    elif path_type == "cnstock-latest":
+        rows = await _fetch_cnstock(True, page=page)
+    elif path_type in _CM_BOARDS:
+        rows = await _fetch_chinamoney(path_type, True, page_no=page)
+    elif path_type == "cs-finance":
+        rows = await _fetch_cs_day(page)
+    else:
+        raise ValueError(f"exchange-regulator-news:{path_type} has no paged backfill")
+    return BackfillPage(
+        data=RouterData(kind="newsflash", **ROUTE_META, type=_BOARDS[path_type], total=len(rows["data"]),
+                        fromCache=False, updateTime=rows["update_time"], data=rows["data"]),
+        next_cursor=None if rows.get("exhausted") or not rows["data"] else encode_cursor({"page": page + 1}),
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+_BACKFILL_SHARED_1 = BackfillSpec(
+    strategy=BackfillStrategy.PAGE_NUMBER,
+    notes="POST page=0/1/…，完整保留重复 nodeIds[]/needFields[]。",
+    verified_at="2026-10-14",
+)
+_BACKFILL_SHARED_2 = BackfillSpec(
+    strategy=BackfillStrategy.PAGE_NUMBER,
+    notes="pageNo=N；日期只到日。",
+    time_precision="day",
+    verified_at="2026-10-14",
+)
+_BACKFILL_SHARED_3 = BackfillSpec(
+    strategy=BackfillStrategy.SNAPSHOT,
+    notes="公开报告列表，翻页重复；日期只到日。",
+    verified_at="2026-10-14",
+    time_precision="day",
+)
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": unsupported("Cloud 未将该源归为快讯，回溯能力未调研。"),
+    "bse-news": _BACKFILL_SHARED_1,
+    "neeq-news": _BACKFILL_SHARED_1,
+    "cnstock-latest": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="waterfallPage pageNum=N。",
+        verified_at="2026-10-14",
+    ),
+    "cs-finance": BackfillSpec(
+        strategy=BackfillStrategy.DATE_QUERY,
+        notes="PAGE_INDEX_MAP 按日 JS 分片；首屏 15 条截断不代表上限。",
+        time_precision="minute",
+        verified_at="2026-10-14",
+    ),
+    "chinamoney-lpr": _BACKFILL_SHARED_2,
+    "chinamoney-fx": _BACKFILL_SHARED_2,
+    "chinamoney-bb": _BACKFILL_SHARED_2,
+    "sse-latest-rules": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="公开规则列表，无深分页；日期只到日。",
+        verified_at="2026-10-14",
+        time_precision="day",
+    ),
+    "nifd-weekly": _BACKFILL_SHARED_3,
+    "nifd-quarterly": _BACKFILL_SHARED_3,
+    "nifd-paper": _BACKFILL_SHARED_3,
+    "nifd-comment": _BACKFILL_SHARED_3,
+}

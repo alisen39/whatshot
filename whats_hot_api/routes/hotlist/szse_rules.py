@@ -8,6 +8,13 @@ from starlette.requests import Request
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import post
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+)
 
 ROUTE_NAME = "szse-rules"
 
@@ -112,3 +119,38 @@ def _items(docs: list) -> list[ListItem]:
             )
         )
     return items
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via the same form with ``currentPage=N``."""
+    page = int(decode_cursor(cursor).get("page") or 1)
+    result = await post(
+        url=_API, headers=_FORM_HEADERS, body=urlencode({**_FORM, "currentPage": str(page)}), no_cache=True
+    )
+    payload = result.data if isinstance(result.data, dict) else {}
+    code = payload.get("code")
+    if code is not None and str(code) != "200":
+        raise RuntimeError(f"SZSE rules API returned code={code} message={payload.get('msg')}")
+    docs = payload.get("data")
+    items = _items(docs) if isinstance(docs, list) else []
+    return BackfillPage(
+        data=RouterData(kind="newsflash", **ROUTE_META, type=type_map["hot"], total=len(items),
+                        fromCache=False, updateTime=result.update_time, data=items),
+        next_cursor=encode_cursor({"page": page + 1}) if items else None,
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="POST /api/search/content：currentPage=N，保留 keyword、channelCode[] 与表单编码。",
+        verified_at="2026-10-14",
+    ),
+}

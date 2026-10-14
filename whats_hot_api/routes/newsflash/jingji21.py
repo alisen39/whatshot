@@ -20,6 +20,13 @@ from whats_hot_api.utils.newsflash import (
     to_int,
     truthy_flag,
 )
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+)
 
 ROUTE_NAME = "21jingji"
 
@@ -35,6 +42,10 @@ ROUTE_META: dict = {
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
+    return _router_data(list_data)
+
+
+def _router_data(list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -46,14 +57,14 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool) -> dict:
+async def _get_list(no_cache: bool, *, page: int = 1) -> dict:
     url = "https://api.21jingji.com/timestream/getListweb"
     result = await get(
         url=url,
         no_cache=no_cache,
         ttl=config.NEWSFLASH_CACHE_TTL,
         response_type="text",
-        params={"page": "1"},
+        params={"page": str(page)},
         headers={
             "User-Agent": "Mozilla/5.0",
             "Accept": "application/json, text/plain, */*",
@@ -165,3 +176,30 @@ def _split_tags(value: object) -> list[str]:
             seen.add(text)
             result.append(text)
     return result
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via ``page=N`` (offset paging; callers merge passes)."""
+    page = int(decode_cursor(cursor).get("page") or 1)
+    list_data = await _get_list(True, page=page)
+    return BackfillPage(
+        data=_router_data(list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"page": page + 1}) if list_data["data"] else None,
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="getListweb?page=N；分钟精度。",
+        time_precision="minute",
+        verified_at="2026-10-14",
+    ),
+}

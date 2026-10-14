@@ -43,6 +43,14 @@ from starlette.requests import Request
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get, post
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    unsupported,
+)
 
 ROUTE_NAME = "yicai-21jingji"
 
@@ -218,15 +226,15 @@ async def _get_m21_token(no_cache: bool) -> str:
     return str(payload["token"])
 
 
-async def _get_m21(board: str, label: str, path_and_marker: str, no_cache: bool) -> dict:
+async def _get_m21(board: str, label: str, path_and_marker: str, no_cache: bool, *, page: int = 1) -> dict:
     token = await _get_m21_token(no_cache)
     result = await get(
         # 与手机站 app.js getNews 拼法一致：<栏目接口>?short=…|more=1&type=json&page=N
-        url=f"{_M21}{path_and_marker}&type=json&page=1",
+        url=f"{_M21}{path_and_marker}&type=json&page={page}",
         headers={**_M21_HEADERS, "Authorization": token, "Content-Type": "application/json"},
         no_cache=no_cache,
         response_type="json",
-        cache_key=f"yicai-21jingji:m21:{board}",
+        cache_key=f"yicai-21jingji:m21:{board}" + (f":{page}" if page > 1 else ""),
     )
     # 不带 Authorization / token 错误时接口返回 404 HTML 页
     rows = result.data if isinstance(result.data, list) else None
@@ -260,7 +268,7 @@ async def _get_m21(board: str, label: str, path_and_marker: str, no_cache: bool)
                 timestamp=get_time(row.get("updatetime")),
             )
         )
-    if not items:
+    if not items and page == 1:
         raise RuntimeError(f"21jingji {label} board returned no items")
     return {
         "from_cache": result.from_cache,
@@ -292,3 +300,39 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         data=list_data["data"],
         message=list_data.get("message"),
     )
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """21 财经移动栏目 ``type=json&page=N``；第一财经推荐/排行不可回溯。"""
+    if path_type not in _M21_BOARDS:
+        raise ValueError(f"yicai-21jingji:{path_type} has no paged backfill")
+    page = int(decode_cursor(cursor).get("page") or 1)
+    label, path_and_marker = _M21_BOARDS[path_type]
+    list_data = await _get_m21(path_type, label, path_and_marker, True, page=page)
+    return BackfillPage(
+        data=RouterData(kind="newsflash", **ROUTE_META, type=type_map[path_type], total=len(list_data["data"]),
+                        fromCache=False, updateTime=list_data["update_time"], data=list_data["data"]),
+        next_cursor=encode_cursor({"page": page + 1}) if list_data["data"] else None,
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": unsupported("推荐/排行成员与顺序无法按历史还原，只能读到当前内容。"),
+    "21jingji-health": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="21 财经移动栏目 type=json&page=N。",
+        verified_at="2026-10-14",
+    ),
+    "21jingji-hot": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="21 财经热点按热度排序（翻页时间不单调），时间游标无法判断覆盖；只读当前列表。",
+        verified_at="2026-10-14",
+    ),
+}

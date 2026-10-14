@@ -31,6 +31,17 @@ class CacheOnlyMiss(Exception):
 
 
 _cache_only_mode: ContextVar[bool] = ContextVar("cache_only_mode", default=False)
+_cache_bypass_mode: ContextVar[bool] = ContextVar("cache_bypass_mode", default=False)
+
+
+@contextmanager
+def bypass_cache():
+    """Neither read nor write the response cache (historical backfill pages)."""
+    token = _cache_bypass_mode.set(True)
+    try:
+        yield
+    finally:
+        _cache_bypass_mode.reset(token)
 
 
 @contextmanager
@@ -242,7 +253,8 @@ async def get(
                 )
             raise CacheOnlyMiss(key)
 
-        if not no_cache:
+        bypass = _cache_bypass_mode.get()
+        if not no_cache and not bypass:
             cached = await cache.get(key)
             if cached:
                 logger.info("💾 [CACHE] The request is cached")
@@ -268,11 +280,12 @@ async def get(
             data = {"data": data, "status": response.status_code, "headers": dict(response.headers)}
 
         update_time = datetime.now(timezone.utc).isoformat()
-        await cache.set(
-            key,
-            CacheData(update_time=update_time, data=data),
-            _resolve_cache_ttl(ttl),
-        )
+        if not bypass:
+            await cache.set(
+                key,
+                CacheData(update_time=update_time, data=data),
+                _resolve_cache_ttl(ttl),
+            )
         logger.info(f"✅ [{response.status_code}] request was successful")
         return RequestResult(from_cache=False, update_time=update_time, data=data)
     except asyncio.CancelledError:
@@ -321,7 +334,8 @@ async def post(
                 )
             raise CacheOnlyMiss(key)
 
-        if not no_cache:
+        bypass = _cache_bypass_mode.get()
+        if not no_cache and not bypass:
             cached = await cache.get(key)
             if cached:
                 logger.info("💾 [CACHE] The request is cached")
@@ -351,11 +365,12 @@ async def post(
             data = {"data": data, "status": response.status_code, "headers": dict(response.headers)}
 
         update_time = datetime.now(timezone.utc).isoformat()
-        await cache.set(
-            key,
-            CacheData(update_time=update_time, data=data),
-            _resolve_cache_ttl(ttl),
-        )
+        if not bypass:
+            await cache.set(
+                key,
+                CacheData(update_time=update_time, data=data),
+                _resolve_cache_ttl(ttl),
+            )
         logger.info(f"✅ [{response.status_code}] request was successful")
         return RequestResult(from_cache=False, update_time=update_time, data=data)
     except asyncio.CancelledError:

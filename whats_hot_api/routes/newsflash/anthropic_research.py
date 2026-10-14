@@ -9,6 +9,7 @@ from starlette.requests import Request
 from whats_hot_api.config import config
 from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.http_client import get
+from whats_hot_api.backfill import BackfillSpec, BackfillStrategy
 
 ROUTE_NAME = "anthropic-research"
 SOURCE_LINK = "https://www.anthropic.com/research"
@@ -123,3 +124,14 @@ def _publish_timestamp(value: object) -> int | None:
 
 def _text(value: object) -> str:
     return " ".join(str(value or "").split())
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="RSSHub 归档列表，无独立深分页；日期只到日。",
+        verified_at="2026-10-14",
+        time_precision="day",
+    ),
+}

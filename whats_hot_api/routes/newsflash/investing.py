@@ -6,6 +6,7 @@ from whats_hot_api.config import config
 from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
+from whats_hot_api.backfill import BackfillSpec, BackfillStrategy
 
 ROUTE_NAME = "investing"
 
@@ -99,3 +100,13 @@ async def _get_list(selected_type: str, no_cache: bool) -> dict:
         "update_time": result.update_time,
         "data": data,
     }
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="官方 RSS 每类 10 条，paged 不推进；网页第 2 页在新加坡 403。",
+        verified_at="2026-10-14",
+    ),
+}

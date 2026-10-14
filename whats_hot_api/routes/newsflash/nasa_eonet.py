@@ -9,6 +9,7 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import compact_strings, metrics, text_or_none
+from whats_hot_api.backfill import unsupported
 
 ROUTE_NAME = "nasa-eonet"
 
@@ -115,3 +116,9 @@ def _latest_geometry(event: dict[str, Any]) -> dict[str, Any]:
     geometries = event.get("geometry") or []
     latest = geometries[-1] if geometries else {}
     return latest if isinstance(latest, dict) else {}
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL = {
+    "*": unsupported("Cloud 未将该源归为快讯，回溯能力未调研。"),
+}

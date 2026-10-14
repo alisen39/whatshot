@@ -17,6 +17,7 @@ from whats_hot_api.utils.newsflash import (
     to_int,
     truthy_flag,
 )
+from whats_hot_api.backfill import BackfillSpec, BackfillStrategy
 
 ROUTE_NAME = "jiemian"
 
@@ -111,3 +112,14 @@ async def _get_list(no_cache: bool) -> dict:
         "update_time": result.update_time,
         "data": data,
     }
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="getLastest 只回最近约 200 条（数小时）；getlistmore 实测 start_time 只回同一时刻条目、"
+        "翻页返回 code=1“无效请求”，翻页语义未确认，按当前列表读取。",
+        verified_at="2026-10-14",
+    ),
+}

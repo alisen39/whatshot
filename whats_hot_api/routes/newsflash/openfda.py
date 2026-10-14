@@ -10,6 +10,7 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import compact_strings, metrics, text_or_none
+from whats_hot_api.backfill import unsupported
 
 ROUTE_NAME = "openfda"
 
@@ -157,3 +158,9 @@ def _shorten(value: str, limit: int) -> str:
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[:limit].rstrip()}…"
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL = {
+    "*": unsupported("report_date 是报告日而非首次公开时间，按日期回溯不能证明窗口内无新增。"),
+}

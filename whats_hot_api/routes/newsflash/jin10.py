@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 
 from starlette.requests import Request
 
@@ -18,6 +19,14 @@ from whats_hot_api.utils.newsflash import (
     text_or_none,
     to_int,
     truthy_flag,
+)
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
 )
 
 ROUTE_NAME = "jin10"
@@ -40,6 +49,10 @@ _TYPE_LABELS = {
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
+    return _router_data(list_data)
+
+
+def _router_data(list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -51,7 +64,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool) -> dict:
+async def _get_list(no_cache: bool, *, max_time: str | None = None) -> dict:
     url = "https://flash-api.jin10.com/get_flash_list"
     result = await get(
         url=url,
@@ -62,6 +75,8 @@ async def _get_list(no_cache: bool) -> dict:
             "channel": "-8200",
             "vip": "1",
             "num": "20",
+            # max_time (Beijing "YYYY-mm-dd HH:MM:SS") is inclusive upstream.
+            **({"max_time": max_time} if max_time else {}),
         },
         headers={
             "User-Agent": "Mozilla/5.0",
@@ -73,7 +88,8 @@ async def _get_list(no_cache: bool) -> dict:
         },
     )
 
-    items = (result.data or {}).get("data") or []
+    raw = result.data or {}
+    items = raw.get("data") or []
     data: list[NewsFlashItem] = []
     for it in items:
         if not it.get("time"):
@@ -117,13 +133,51 @@ async def _get_list(no_cache: bool) -> dict:
                 mobileUrl=detail_url,
             )
         )
+    times = [str(it["time"]) for it in items if it.get("time")]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data,
+        "raw": raw,
+        "oldest_time": min(times) if times else None,
     }
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before: datetime | None = None,
+) -> BackfillPage:
+    """Older pages with ``max_time`` = previous page's oldest time (inclusive)."""
+    state = decode_cursor(cursor)
+    max_time = state.get("maxTime")
+    if max_time is None and before is not None:
+        max_time = before.astimezone(_BEIJING).strftime("%Y-%m-%d %H:%M:%S")
+    list_data = await _get_list(True, max_time=max_time)
+    oldest = list_data["oldest_time"]
+    return BackfillPage(
+        data=_router_data(list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"maxTime": oldest}) if oldest else None,
+        raw_digest=payload_digest(list_data["raw"]),
+    )
+
+
+_BEIJING = timezone(timedelta(hours=8))
 
 
 def _title_from_content(content: str) -> str | None:
     match = re.match(r"^【(.+?)】", content)
     return match.group(1).strip() if match else None
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.TIME_CURSOR,
+        notes="get_flash_list：max_time=上一页最老 time 的北京时间字符串（含边界），保留 channel/vip。",
+        supports_before=True,
+        verified_at="2026-10-14",
+    ),
+}

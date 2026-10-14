@@ -37,6 +37,15 @@ from starlette.requests import Request
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import RequestResult, get
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+    unsupported,
+)
 
 ROUTE_NAME = "stcn-channels"
 
@@ -96,6 +105,8 @@ _DEFAULT_TYPE = next(iter(type_map))
 _LIST_URL = WWW + "/article/list/{code}.html"
 _KX_URL = WWW + "/article/list.html?type=kx"
 _KX_RANK_URL = WWW + "/article/category-news-rank.html?type=kx"
+# "加载更多": page_time (1, 2, …) and last_time both come from the previous response.
+_PAGED_LIST_URL = WWW + "/article/list.html"
 # 快讯接口不带 X-Requested-With 时返回快讯页整页 HTML(header_matrix 实测);
 # 两个 JSON 接口都照页面 jQuery $.getJSON 一致带上 XHR 头。
 _XHR_HEADERS = {
@@ -353,3 +364,83 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         updateTime=result.update_time,
         data=data,
     )
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via ``list.html?type=…&page_time=…&last_time=…`` from the previous
+    response; columns return an HTML ``<li>`` fragment, 快讯 a JSON list."""
+    if path_type == KX_RANK_TYPE or path_type not in type_map:
+        raise ValueError(f"stcn-channels:{path_type} has no paged backfill")
+    state = decode_cursor(cursor)
+    query = {"type": path_type, "page_time": str(state.get("pageTime") or 1)}
+    if state.get("lastTime"):
+        query["last_time"] = str(state["lastTime"])
+    result = await get(
+        url=_PAGED_LIST_URL,
+        params=query,
+        headers={**_XHR_HEADERS, "Referer": f"{WWW}/article/list/{path_type}.html"},
+        no_cache=True,
+        response_type="json",
+        origin_info=True,
+    )
+    wrapped = result.data if isinstance(result.data, dict) else {}
+    payload = wrapped.get("data") if isinstance(wrapped.get("data"), dict) else {}
+    if payload.get("state") != 1:
+        if cursor and not payload.get("data"):
+            # A failed history page without data marks the end of the public window.
+            payload = {"data": None}
+        else:
+            raise RuntimeError(f"STCN paged list returned an unexpected payload: {str(payload)[:200]}")
+    rows = payload.get("data")
+    if path_type == KX_TYPE:
+        data, label = _parse_kx(rows if isinstance(rows, list) else []), KX_LABEL
+    else:
+        now = _page_time(wrapped.get("headers") or {})
+        fragment = rows if isinstance(rows, str) else ""
+        _tops, data = _parse_list_page(f'<ul class="infinite-list">{fragment}</ul>', now)
+        label = LIST_BOARDS[path_type]
+    has_next = bool(data) and payload.get("page_time") and payload.get("last_time")
+    return BackfillPage(
+        data=RouterData(
+            kind="newsflash",
+            **ROUTE_META,
+            type=label,
+            total=len(data),
+            fromCache=False,
+            updateTime=result.update_time,
+            data=data,
+        ),
+        next_cursor=(
+            # last_time is the page's oldest second and exclusive upstream: +1 keeps it.
+            encode_cursor({"pageTime": payload["page_time"], "lastTime": int(payload["last_time"]) + 1})
+            if has_next
+            else None
+        ),
+        raw_digest=payload_digest(wrapped.get("data")),
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+_BACKFILL_SHARED_1 = BackfillSpec(
+    strategy=BackfillStrategy.TIME_CURSOR,
+    notes="page_time/last_time 推进后返回 state=1 空数据，公开窗口不足。",
+    time_precision="minute",
+    verified_at="2026-10-14",
+)
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.TIME_CURSOR,
+        notes="article/list.html：page_time/last_time 取自响应；data 为 HTML 片段（kx 为 JSON）。",
+        time_precision="minute",
+        verified_at="2026-10-14",
+    ),
+    "gd": _BACKFILL_SHARED_1,
+    "data": _BACKFILL_SHARED_1,
+    "kx-rank": unsupported("推荐/排行成员与顺序无法按历史还原，只能读到当前内容。"),
+}

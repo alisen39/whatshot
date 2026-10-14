@@ -13,6 +13,7 @@ from whats_hot_api.config import config
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
+from whats_hot_api.backfill import unsupported
 
 ROUTE_NAME = "yahoo-finance"
 
@@ -318,3 +319,9 @@ def _compact_number(value: int) -> str:
         if abs(value) >= divisor:
             return f"{value / divisor:.2f}{unit}"
     return f"{value:,}"
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL = {
+    "*": unsupported("现有及替代 RSS 404，网页 API 401；历史链路未判定（D）。"),
+}

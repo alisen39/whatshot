@@ -9,6 +9,7 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import metrics, text_or_none
+from whats_hot_api.backfill import unsupported
 
 ROUTE_NAME = "noaa-alerts"
 
@@ -175,3 +176,9 @@ def _is_pair(value: object) -> bool:
         and isinstance(value[0], (int, float))
         and isinstance(value[1], (int, float))
     )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL = {
+    "*": unsupported("Cloud 未将该源归为快讯，回溯能力未调研。"),
+}

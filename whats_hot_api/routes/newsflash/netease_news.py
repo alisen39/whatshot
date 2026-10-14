@@ -7,6 +7,7 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import text_or_none
+from whats_hot_api.backfill import unsupported
 
 ROUTE_NAME = "netease-news"
 SOURCE_LINK = "https://m.163.com/hot"
@@ -89,3 +90,9 @@ def _stable_id(row: dict) -> str | None:
     if row.get("skipType") == "video":
         return text_or_none(row.get("skipID") or row.get("vid"))
     return None
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL = {
+    "*": unsupported("推荐/排行成员与顺序无法按历史还原，只能读到当前内容。"),
+}

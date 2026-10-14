@@ -22,6 +22,14 @@ from whats_hot_api.utils.newsflash import (
     to_int,
     truthy_flag,
 )
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+)
 
 ROUTE_NAME = "36kr-quick"
 
@@ -80,6 +88,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     requested_type = request.query_params.get("type", "hot")
     selected_type = requested_type if requested_type in _CATALOG_IDS else "hot"
     list_data = await _get_list(_CATALOG_IDS[selected_type], no_cache)
+    return _router_data(selected_type, list_data)
+
+
+def _router_data(selected_type: str, list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -91,7 +103,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(catalog_id: int, no_cache: bool) -> dict:
+async def _get_list(catalog_id: int, no_cache: bool, *, page_callback: str | None = None) -> dict:
     page_url = f"https://www.36kr.com/newsflashes/catalog/{catalog_id}"
     page_result = await get(
         url=page_url,
@@ -101,7 +113,7 @@ async def _get_list(catalog_id: int, no_cache: bool) -> dict:
         headers=_PAGE_HEADERS,
     )
     nonce = _extract_nonce(page_result.data)
-    signed_body, sign = _build_signed_request(nonce, catalog_id)
+    signed_body, sign = _build_signed_request(nonce, catalog_id, page_callback=page_callback)
     result = await post(
         url=f"{API_URL}?sign={sign}",
         no_cache=no_cache,
@@ -116,7 +128,30 @@ async def _get_list(catalog_id: int, no_cache: bool) -> dict:
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": _parse_items(payload.get("itemList")),
+        "raw": payload,
+        "next": payload.get("pageCallback") if payload.get("itemList") else None,
     }
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages with ``pageEvent=1`` + upstream ``pageCallback``; every page
+    re-reads the catalog page nonce and re-signs the full request body."""
+    selected_type = path_type if path_type in _CATALOG_IDS else "hot"
+    list_data = await _get_list(
+        _CATALOG_IDS[selected_type], True, page_callback=decode_cursor(cursor).get("pageCallback")
+    )
+    next_value = list_data["next"]
+    return BackfillPage(
+        data=_router_data(selected_type, list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"pageCallback": next_value}) if next_value else None,
+        raw_digest=payload_digest(list_data["raw"]),
+    )
 
 
 def _extract_nonce(html: object) -> str:
@@ -126,15 +161,20 @@ def _extract_nonce(html: object) -> str:
     return match.group(1)
 
 
-def _build_signed_request(nonce: str, catalog_id: int) -> tuple[str, str]:
+def _build_signed_request(
+    nonce: str,
+    catalog_id: int,
+    *,
+    page_callback: str | None = None,
+) -> tuple[str, str]:
     body = {
         "nonce": nonce,
         "partner_id": "web",
         "timestamp": int(time.time() * 1000),
         "param": {
             "pageSize": 20,
-            "pageEvent": 0,
-            "pageCallback": "",
+            "pageEvent": 1 if page_callback else 0,
+            "pageCallback": page_callback or "",
             "siteId": 1,
             "type": catalog_id,
             "platformId": 2,
@@ -216,3 +256,13 @@ def _decode_source_url(route: object) -> str | None:
     if candidate and urlsplit(candidate).scheme in {"http", "https"}:
         return candidate
     return None
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.OPAQUE_CURSOR,
+        notes="newsflash/list：pageEvent=1 + 上游 pageCallback；每页重取网页 nonce 并对完整请求体重签。",
+        verified_at="2026-10-14",
+    ),
+}

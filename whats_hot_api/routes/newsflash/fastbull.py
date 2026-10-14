@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 import re
 from urllib.parse import urljoin
 
@@ -10,6 +11,15 @@ from whats_hot_api.config import config
 from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.http_client import get, post
 from whats_hot_api.utils.newsflash import content_status, to_int
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+    unsupported,
+)
 
 ROUTE_NAME = "fastbull"
 
@@ -68,6 +78,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         list_data = await _get_news_list(no_cache)
     else:
         list_data = await _get_feed_list(board_type, no_cache)
+    return _router_data(board_type, list_data)
+
+
+def _router_data(board_type: str, list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -79,7 +93,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_feed_list(board_type: str, no_cache: bool) -> dict:
+async def _get_feed_list(board_type: str, no_cache: bool, *, timestamp: int | None = None) -> dict:
     if board_type == "en":
         url, headers = FEED_URL_EN, FEED_HEADERS_EN
         params = {"pageSize": str(FEED_PAGE_SIZE)}
@@ -89,6 +103,9 @@ async def _get_feed_list(board_type: str, no_cache: bool) -> dict:
             "pageSize": str(FEED_PAGE_SIZE),
             "checkImportant": "1" if board_type == "important" else "0",
         }
+    if timestamp is not None:
+        # releasedDate bound in ms, inclusive upstream.
+        params["timestamp"] = str(timestamp)
     result = await get(
         url=url,
         no_cache=no_cache,
@@ -146,25 +163,35 @@ async def _get_feed_list(board_type: str, no_cache: bool) -> dict:
                 mobileUrl=url,
             )
         )
-    if not data and board_type != "important":
+    if not data and board_type != "important" and timestamp is None:
         raise ValueError("FastBull express feed is empty")
     # The important board filters to important==1 flashes, so an empty page is
     # a legitimate quiet-window state there; express and en must never be empty.
+    # An empty historical page is the end of the upstream window.
+    released = [to_int(node.get("releasedDate")) for node in payload["pageDatas"]]
+    released = [value for value in released if value]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data,
+        "raw": payload,
+        "next": min(released) if released else None,
     }
 
 
-async def _get_news_list(no_cache: bool) -> dict:
+async def _get_news_list(no_cache: bool, *, timestamp: int | None = None) -> dict:
     result = await post(
         url=NEWS_URL,
         no_cache=no_cache,
         ttl=config.NEWSFLASH_CACHE_TTL,
         response_type="json",
         headers={"lang": "zh-cn"},
-        body={"pageSize": FEED_PAGE_SIZE, "showNewsTypeList": [1]},
+        body={
+            "pageSize": FEED_PAGE_SIZE,
+            "showNewsTypeList": [1],
+            # pubTime bound in ms, exclusive upstream.
+            **({"timestamp": timestamp} if timestamp is not None else {}),
+        },
     )
     envelope = result.data
     if not isinstance(envelope, dict) or envelope.get("code") != 0:
@@ -216,14 +243,57 @@ async def _get_news_list(no_cache: bool) -> dict:
                 mobileUrl=url,
             )
         )
-    if not data:
+    if not data and timestamp is None:
         raise ValueError("FastBull news feed is empty")
+    published = [to_int(node.get("pubTime")) for node in payload["pageDatas"]]
+    published = [value for value in published if value]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data,
+        "raw": payload,
+        # +1 keeps the oldest millisecond inclusive against the exclusive bound.
+        "next": min(published) + 1 if published else None,
     }
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before: datetime | None = None,
+) -> BackfillPage:
+    """Flash boards page by ``timestamp`` (releasedDate ms); 头条 by body ``timestamp`` (pubTime ms)."""
+    board_type = path_type if path_type in TYPE_MAP else "express"
+    if board_type == "en":
+        raise ValueError("FastBull en backfill is not supported by the Core parser")
+    timestamp = decode_cursor(cursor).get("timestamp")
+    if timestamp is None and before is not None:
+        timestamp = int(before.timestamp() * 1000)
+    if board_type == "news":
+        list_data = await _get_news_list(True, timestamp=timestamp)
+    else:
+        list_data = await _get_feed_list(board_type, True, timestamp=timestamp)
+    next_value = list_data["next"]
+    return BackfillPage(
+        data=_router_data(board_type, list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"timestamp": next_value}) if next_value else None,
+        raw_digest=payload_digest(list_data["raw"]),
+    )
 
 
 def _text(value: object) -> str:
     return " ".join(str(value or "").split())
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.TIME_CURSOR,
+        notes="快讯 GET timestamp=上一页 releasedDate 毫秒（含边界）；头条 POST 请求体 timestamp=上一页 pubTime 毫秒。",
+        supports_before=True,
+        verified_at="2026-10-14",
+    ),
+    "en": unsupported("英文 API 可翻页，但现有 Core 对非数字 path 整批解析失败；修复解析前不得回溯。"),
+}

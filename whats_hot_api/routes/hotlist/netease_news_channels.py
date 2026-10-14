@@ -9,6 +9,13 @@ from starlette.requests import Request
 
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.http_client import get
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+)
 
 ROUTE_NAME = "netease-news-channels"
 
@@ -272,3 +279,58 @@ async def _fetch_latest(no_cache: bool) -> dict:
     if not items:
         raise RuntimeError("netease latest board parsed no items")
     return {"from_cache": result.from_cache, "update_time": result.update_time, "data": items}
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older items of the channel flow via ``/touch/reconstruct/article/list/{topic}/{offset}-20.html``."""
+    if path_type not in TOUCH_PAGES:
+        raise ValueError(f"netease-news-channels:{path_type} has no paged backfill")
+    page = int(decode_cursor(cursor).get("page") or 1)
+    _page_url, topic_id, channel = TOUCH_PAGES[path_type]
+    result = await get(
+        url=f"{M_HOST}/touch/reconstruct/article/list/{topic_id}/{(page - 1) * 20}-20.html",
+        no_cache=True,
+        response_type="text",
+    )
+    text = str(result.data or "")
+    start, end = text.find("{"), text.rfind("}")
+    rows = json.loads(text[start : end + 1]).get(topic_id, []) if 0 <= start < end else []
+    items: list[ListItem] = []
+    seen: set[str] = set()
+    for row in _dedupe([r for r in rows if isinstance(r, dict)]):
+        item = _flow_item(row, channel) if _visible(row) else None
+        if item is not None and item.id not in seen:
+            seen.add(item.id)
+            items.append(item)
+    return BackfillPage(
+        data=RouterData(kind="newsflash", **ROUTE_META, type=type_map[path_type], total=len(items),
+                        fromCache=False, updateTime=result.update_time, data=items),
+        next_cursor=encode_cursor({"page": page + 1}) if rows else None,
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="/touch/reconstruct/article/list/{topicId}/{offset}-20.html；推荐流会重排，offset 翻页可能漏中段，需多轮合并。",
+        page_size=20,
+        verified_at="2026-10-14",
+    ),
+    "touch-news": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="要闻为推荐流，翻页时间不单调（10-14 实测与复查均漏中段），按时间判断覆盖不可靠；只读当前列表。",
+        verified_at="2026-10-14",
+    ),
+    "news-latest": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="new_json2021.js 全量文件，国内 25/国际 14 条有保留边界。",
+        verified_at="2026-10-14",
+    ),
+}

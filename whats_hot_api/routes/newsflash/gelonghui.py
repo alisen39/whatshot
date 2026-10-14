@@ -19,6 +19,14 @@ from whats_hot_api.utils.newsflash import (
     to_int,
     truthy_flag,
 )
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+)
 
 ROUTE_NAME = "gelonghui"
 
@@ -45,7 +53,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool) -> dict:
+async def _get_list(no_cache: bool, *, live_id: str | None = None) -> dict:
     url = "https://www.gelonghui.com/api/live-channels/all/lives/v4"
     result = await get(
         url=url,
@@ -56,6 +64,8 @@ async def _get_list(no_cache: bool) -> dict:
             "category": "all",
             "limit": "20",
             "timestamp": str(int(time.time() * 1000)),
+            # liveId pages strictly older than that live item; timestamp is only a refresh nonce.
+            **({"liveId": live_id} if live_id else {}),
         },
         headers={
             "User-Agent": "Mozilla/5.0",
@@ -103,9 +113,46 @@ async def _get_list(no_cache: bool) -> dict:
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data,
+        "raw": result.data,
+        "next": items[-1].get("id") if items else None,
     }
 
 
 def _title_from_content(content: str) -> str | None:
     match = re.match(r"^【(.+?)】", content)
     return match.group(1).strip() if match else None
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via ``liveId`` = the previous page's last (oldest) live id."""
+    list_data = await _get_list(True, live_id=decode_cursor(cursor).get("liveId"))
+    next_value = list_data["next"]
+    return BackfillPage(
+        data=RouterData(
+            kind="newsflash",
+            **ROUTE_META,
+            type="快讯",
+            total=len(list_data["data"]),
+            fromCache=False,
+            updateTime=list_data["update_time"],
+            data=list_data["data"],
+        ),
+        next_cursor=encode_cursor({"liveId": str(next_value)}) if next_value else None,
+        raw_digest=payload_digest(list_data["raw"]),
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.OPAQUE_CURSOR,
+        notes="lives/v4：liveId=上一页末条 ID；timestamp 仅为刷新参数。",
+        verified_at="2026-10-14",
+    ),
+}

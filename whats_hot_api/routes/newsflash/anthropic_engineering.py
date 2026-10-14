@@ -4,6 +4,7 @@ from starlette.requests import Request
 
 from whats_hot_api.models import ListItem, NewsFlashItem, RouterData
 from whats_hot_api.utils.rsshub import fetch_rsshub_feed
+from whats_hot_api.backfill import BackfillSpec, BackfillStrategy
 
 ROUTE_NAME = "anthropic-engineering"
 SOURCE_LINK = "https://www.anthropic.com/engineering"
@@ -71,3 +72,14 @@ def _as_newsflash(item: ListItem) -> NewsFlashItem:
         url=item.url,
         mobileUrl=item.mobileUrl or item.url,
     )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="RSSHub 归档列表，无独立深分页。",
+        verified_at="2026-10-14",
+        time_precision="day",
+    ),
+}

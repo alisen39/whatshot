@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from urllib.parse import urlencode
 
 from starlette.requests import Request
@@ -18,6 +19,16 @@ from whats_hot_api.utils.newsflash import (
     strip_html,
     to_int,
     truthy_flag,
+)
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+    snapshot,
+    unsupported,
 )
 
 ROUTE_NAME = "cls"
@@ -60,11 +71,14 @@ ROUTE_META: dict = {
 }
 
 
-def _signed_url(board_type: str = "telegraph") -> str:
+def _signed_url(board_type: str = "telegraph", last_time: int | None = None) -> str:
     params = dict(_BASE_PARAMS)
     category = _CATEGORY_BY_TYPE.get(board_type)
     if category:
         params["category"] = category
+    if last_time is not None:
+        # Strictly older than last_time; the sign covers every parameter.
+        params["last_time"] = str(last_time)
     qs = urlencode(sorted(params.items()))
     sha1_value = hashlib.sha1(qs.encode(), usedforsecurity=False).hexdigest()
     sign = hashlib.md5(sha1_value.encode(), usedforsecurity=False).hexdigest()
@@ -79,6 +93,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         if board_type in {"depth", "hot"}
         else await _get_list(board_type, no_cache)
     )
+    return _router_data(board_type, list_data)
+
+
+def _router_data(board_type: str, list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -90,8 +108,8 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(board_type: str, no_cache: bool) -> dict:
-    url = _signed_url(board_type)
+async def _get_list(board_type: str, no_cache: bool, *, last_time: int | None = None) -> dict:
+    url = _signed_url(board_type, last_time)
     result = await get(
         url=url,
         no_cache=no_cache,
@@ -182,11 +200,38 @@ async def _get_list(board_type: str, no_cache: bool) -> dict:
                 mobileUrl=it.get("shareurl") or detail_url,
             )
         )
+    ctimes = [int(it["ctime"]) for it in items if isinstance(it, dict) and it.get("ctime")]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data,
+        "raw": payload,
+        # Includes paid/ad rows the parser drops, so paging never stalls on them.
+        "oldest_ctime": min(ctimes) if ctimes else None,
     }
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before: datetime | None = None,
+) -> BackfillPage:
+    """Telegraph boards page by ``last_time``; it is exclusive upstream, so the
+    cursor is the previous oldest ``ctime`` + 1 to keep that second inclusive."""
+    board_type = path_type if path_type in TYPE_MAP else "telegraph"
+    state = decode_cursor(cursor)
+    last_time = state.get("lastTime")
+    if last_time is None and before is not None:
+        last_time = int(before.timestamp())
+    list_data = await _get_list(board_type, True, last_time=last_time)
+    oldest = list_data["oldest_ctime"]
+    return BackfillPage(
+        data=_router_data(board_type, list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"lastTime": oldest + 1}) if oldest else None,
+        raw_digest=payload_digest(list_data["raw"]),
+    )
 
 
 async def _get_article_list(board_type: str, no_cache: bool) -> dict:
@@ -232,3 +277,20 @@ def _article_item(row: object, board_type: str) -> NewsFlashItem | None:
         source="财联社", tags=[TYPE_MAP[board_type]], timestamp=get_time(row.get("ctime")),
         url=url, mobileUrl=row.get("shareurl") or url,
     )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.TIME_CURSOR,
+        notes="roll/get_roll_list：last_time=上一页最老 ctime（含边界），保留 category，按参数重签 sha1→md5。",
+        supports_before=True,
+        verified_at="2026-10-14",
+    ),
+    "depth": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="depth/list 历史在到达缺口起点前即返回空列表，不能证明覆盖；可读当前内容。",
+        verified_at="2026-10-14",
+    ),
+    "hot": unsupported("推荐/排行成员与顺序无法按历史还原，只能读到当前内容。"),
+}

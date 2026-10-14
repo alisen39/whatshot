@@ -7,6 +7,13 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import metrics, strip_html, text_or_none
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+)
 
 ROUTE_NAME = "who-outbreaks"
 
@@ -23,6 +30,10 @@ ROUTE_META: dict = {
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
+    return _router_data(list_data)
+
+
+def _router_data(list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -34,7 +45,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool) -> dict:
+async def _get_list(no_cache: bool, *, skip: int = 0) -> dict:
     result = await get(
         url=_API_URL,
         no_cache=no_cache,
@@ -43,6 +54,7 @@ async def _get_list(no_cache: bool) -> dict:
         params={
             "$orderby": "PublicationDate desc",
             "$top": "50",
+            **({"$skip": str(skip)} if skip else {}),
         },
         headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -111,3 +123,30 @@ def _bounded_content(value: str, limit: int = 1200) -> tuple[str, str]:
     if len(value) <= limit:
         return value, "full"
     return f"{value[:limit].rstrip()}…", "truncated"
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via OData ``$skip`` over ``PublicationDate desc`` (publication dates)."""
+    skip = int(decode_cursor(cursor).get("skip") or 0)
+    list_data = await _get_list(True, skip=skip)
+    return BackfillPage(
+        data=_router_data(list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"skip": skip + 50}) if list_data["data"] else None,
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.DATE_QUERY,
+        notes="OData $skip/$top，PublicationDate $filter 日期范围。",
+        time_precision="day",
+        verified_at="2026-10-14",
+    ),
+}

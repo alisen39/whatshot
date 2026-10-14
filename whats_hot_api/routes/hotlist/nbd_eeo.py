@@ -39,6 +39,14 @@ from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.logger import logger
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    unsupported,
+)
 
 ROUTE_NAME = "nbd-eeo"
 
@@ -195,17 +203,22 @@ def _parse_nbd_article_title(html: str) -> str | None:
     return matched.group(1).strip() if matched else None
 
 
-async def _get_nbd(board: str, column_id: str, no_cache: bool) -> dict:
+async def _get_nbd(board: str, column_id: str, no_cache: bool, *, page: int = 1) -> dict:
     result = await get(
-        url=f"{_NBD}/columns/{column_id}/",
+        url=f"{_NBD}/columns/{column_id}/" + (f"page/{page}/" if page > 1 else ""),
         no_cache=no_cache,
         response_type="text",
-        cache_key=f"nbd-eeo:nbd-column:{column_id}",
+        cache_key=f"nbd-eeo:nbd-column:{column_id}" + (f":{page}" if page > 1 else ""),
     )
     rows = _parse_nbd_column(str(result.data))
     if not rows:
+        if page > 1:
+            # Past the last history page: end of the upstream window, not a layout change.
+            return {"from_cache": result.from_cache, "update_time": result.update_time, "data": [], "message": None}
         raise RuntimeError(f"NBD column {column_id} page has no list rows (page changed)")
-    full_titles = await _complete_nbd_titles(rows, column_id, no_cache)
+    # The mobile pages only hold the newest rows, so history pages complete titles
+    # from article pages alone (bounded), sparing pointless upstream requests.
+    full_titles = await _complete_nbd_titles(rows, column_id, no_cache, mobile=page == 1)
     items: list[ListItem] = []
     incomplete = 0
     for row in rows:
@@ -224,7 +237,7 @@ async def _get_nbd(board: str, column_id: str, no_cache: bool) -> dict:
                 timestamp=row["timestamp"],
             )
         )
-    if not items:
+    if not items and page == 1:
         raise RuntimeError(f"NBD {board} board returned no items")
     message = (
         f"{incomplete} 条标题在栏目页被截短且未能补全，照栏目页原样" if incomplete else None
@@ -238,7 +251,7 @@ async def _get_nbd(board: str, column_id: str, no_cache: bool) -> dict:
 
 
 async def _complete_nbd_titles(
-    rows: list[dict[str, Any]], column_id: str, no_cache: bool
+    rows: list[dict[str, Any]], column_id: str, no_cache: bool, *, mobile: bool = True
 ) -> dict[str, str]:
     """补全被截短的标题：先手机版（最多 3 页），再文章页（最多 5 篇）。
 
@@ -249,7 +262,7 @@ async def _complete_nbd_titles(
     if not need:
         return full
     known_ids = {str(row["id"]) for row in rows}
-    for page in range(1, _NBD_MOBILE_PAGES + 1):
+    for page in range(1, (_NBD_MOBILE_PAGES if mobile else 0) + 1):
         if need <= full.keys():
             break
         try:
@@ -394,25 +407,31 @@ def _parse_eeo_daily_hot(html: str) -> list[ListItem]:
 
 
 async def _get_eeo_channel(
-    board: str, label: str, uuid: str, channel_path: str, no_cache: bool
+    board: str, label: str, uuid: str, channel_path: str, no_cache: bool, *, page: int = 1
 ) -> dict:
-    """推荐区（频道页 #top-bjtj）在前、接口第 1 页在后，按 id 去重。"""
-    page_result = await get(
-        url=f"{_EEO}{channel_path}",
-        no_cache=no_cache,
-        response_type="text",
-        cache_key=f"nbd-eeo:eeo-channel-page:{board}",
-    )
-    top_items = _parse_eeo_top(str(page_result.data))
+    """推荐区（频道页 #top-bjtj）在前、接口第 1 页在后，按 id 去重。
+
+    回溯翻页（page > 1）只读接口第 page-1 页，不再拼推荐区。
+    """
+    page_result = None
+    top_items: list[ListItem] = []
+    if page == 1:
+        page_result = await get(
+            url=f"{_EEO}{channel_path}",
+            no_cache=no_cache,
+            response_type="text",
+            cache_key=f"nbd-eeo:eeo-channel-page:{board}",
+        )
+        top_items = _parse_eeo_top(str(page_result.data))
     api_result = await get(
         # 不带 jsoncallback 时接口直接返回 JSON，与频道页"加载更多"的 JSONP 同一份
         url=(
             f"{_EEO_API}?app=article&controller=index&action=getMoreArticle"
-            f"&uuid={uuid}&page=0&pageSize={_EEO_PAGE_SIZE}&prevUuid=&prevPublishDate="
+            f"&uuid={uuid}&page={page - 1}&pageSize={_EEO_PAGE_SIZE}&prevUuid=&prevPublishDate="
         ),
         no_cache=no_cache,
         response_type="json",
-        cache_key=f"nbd-eeo:eeo-api:{board}",
+        cache_key=f"nbd-eeo:eeo-api:{board}" + (f":{page}" if page > 1 else ""),
     )
     payload = api_result.data if isinstance(api_result.data, dict) else {}
     if payload.get("code") != 200:
@@ -427,10 +446,10 @@ async def _get_eeo_channel(
             item.timestamp = listed_by_id[item.id].timestamp
     top_ids = {item.id for item in top_items}
     items = top_items + [item for item in listed_items if item.id not in top_ids]
-    if not items:
+    if not items and page == 1:
         raise RuntimeError(f"EEO {label} board returned no items")
     return {
-        "from_cache": page_result.from_cache and api_result.from_cache,
+        "from_cache": (page_result is None or page_result.from_cache) and api_result.from_cache,
         "update_time": api_result.update_time,
         "data": items,
         "message": None,
@@ -467,6 +486,33 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         list_data = await _get_eeo_channel(type_param, label, uuid, channel_path, no_cache)
     else:
         list_data = await _get_eeo_daily_hot(no_cache)
+    return _router_data(type_param, list_data)
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """每经栏目页 ``page/N/``（第 51 页起 403）；经观 ``getMoreArticle`` ``page=N-1``。"""
+    page = int(decode_cursor(cursor).get("page") or 1)
+    if path_type in _NBD_BOARDS:
+        _, column_id = _NBD_BOARDS[path_type]
+        list_data = await _get_nbd(path_type, column_id, True, page=page)
+    elif path_type in _EEO_CHANNELS:
+        label, uuid, channel_path = _EEO_CHANNELS[path_type]
+        list_data = await _get_eeo_channel(path_type, label, uuid, channel_path, True, page=page)
+    else:
+        raise ValueError(f"nbd-eeo:{path_type} has no paged backfill")
+    return BackfillPage(
+        data=_router_data(path_type, list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"page": page + 1}) if list_data["data"] else None,
+    )
+
+
+def _router_data(type_param: str, list_data: dict) -> RouterData:
     return RouterData(
         **ROUTE_META,
         type=type_map[type_param],
@@ -476,3 +522,35 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         data=list_data["data"],
         message=list_data.get("message"),
     )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+_BACKFILL_SHARED_1 = BackfillSpec(
+    strategy=BackfillStrategy.PAGE_NUMBER,
+    notes="每经 columns/{栏目}/page/N/；第 51 页起 403。",
+    max_pages=50,
+    verified_at="2026-10-14",
+)
+_BACKFILL_SHARED_2 = BackfillSpec(
+    strategy=BackfillStrategy.PAGE_NUMBER,
+    notes="EEO getMoreArticle?page=N-1，保留 uuid 与静态参数。",
+    verified_at="2026-10-14",
+)
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": unsupported("Cloud 未将该源归为快讯，回溯能力未调研。"),
+    "nbd-news": _BACKFILL_SHARED_1,
+    "nbd-market-events": _BACKFILL_SHARED_1,
+    "nbd-headline": _BACKFILL_SHARED_1,
+    "nbd-hot-comment": _BACKFILL_SHARED_1,
+    "nbd-investigation": _BACKFILL_SHARED_1,
+    "nbd-original": _BACKFILL_SHARED_1,
+    "nbd-flash": _BACKFILL_SHARED_1,
+    "eeo-tmt": _BACKFILL_SHARED_2,
+    "eeo-listed-company": _BACKFILL_SHARED_2,
+    "eeo-business": _BACKFILL_SHARED_2,
+    "eeo-real-estate": _BACKFILL_SHARED_2,
+    "eeo-marketing": _BACKFILL_SHARED_2,
+    "eeo-opinion": _BACKFILL_SHARED_2,
+    "eeo-finance": _BACKFILL_SHARED_2,
+    "eeo-daily-hot": unsupported("推荐/排行成员与顺序无法按历史还原，只能读到当前内容。"),
+}

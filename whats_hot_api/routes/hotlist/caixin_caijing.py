@@ -46,6 +46,14 @@ from starlette.requests import Request
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import RequestResult, get
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    unsupported,
+)
 
 ROUTE_NAME = "caixin-caijing"
 
@@ -113,11 +121,11 @@ _AUTHOR_PREFIX_RE = re.compile(r"^\s*文\s*[｜|]\s*")
 _DATILINE_RE = re.compile(r"\s*发自[^，,、]*")
 
 
-def _subject_url(subject: str) -> str:
+def _subject_url(subject: str, start: int = 0) -> str:
     # 与要闻页 loadMore 的拼法一致(jQuery 的 callback=? 换成固定回调名 cb)
     return (
         "https://gateway.caixin.com/api/extapi/homeInterface.jsp"
-        f"?callback=cb&subject={subject}&type=0&count={_NEWS_PAGE_SIZE}&picdim=_266_177&start=0"
+        f"?callback=cb&subject={subject}&type=0&count={_NEWS_PAGE_SIZE}&picdim=_266_177&start={start}"
     )
 
 
@@ -433,3 +441,69 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         updateTime=result.update_time,
         data=data,
     )
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """最新文章 ``scroll/index?page=N``；政经/经济/金融要闻 ``homeInterface start=(N-1)*25``。"""
+    page = int(decode_cursor(cursor).get("page") or 1)
+    if path_type == "caixin-latest":
+        result = await get(
+            url=_SCROLL_URL.replace("page=1&", f"page={page}&"),
+            headers=_JSON_HEADERS, no_cache=True, response_type="json",
+        )
+        data = parse_scroll(result.data)
+    elif path_type in _SUBJECTS:
+        subject, referer = _SUBJECTS[path_type]
+        result = await get(
+            url=_subject_url(subject, (page - 1) * _NEWS_PAGE_SIZE),
+            headers={**_JSON_HEADERS, "Referer": referer}, no_cache=True, response_type="text",
+        )
+        body = str(result.data or "")
+        data = parse_subject(strip_jsonp(body)) if body.strip() else []
+    else:
+        raise ValueError(f"caixin-caijing:{path_type} has no paged backfill")
+    return BackfillPage(
+        data=RouterData(kind="newsflash", **ROUTE_META, type=type_map[path_type], total=len(data),
+                        fromCache=False, updateTime=result.update_time, data=data),
+        next_cursor=encode_cursor({"page": page + 1}) if data else None,
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+_BACKFILL_SHARED_1 = BackfillSpec(
+    strategy=BackfillStrategy.PAGE_NUMBER,
+    notes="homeInterface.jsp?subject=频道&start=(N-1)*count。",
+    time_precision="minute",
+    verified_at="2026-10-14",
+)
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": unsupported("Cloud 未将该源归为快讯，回溯能力未调研。"),
+    "caixin-latest": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="scroll/index?page=N。",
+        time_precision="minute",
+        verified_at="2026-10-14",
+    ),
+    "caixin-china": _BACKFILL_SHARED_1,
+    "caixin-economy": _BACKFILL_SHARED_1,
+    "caixin-finance": _BACKFILL_SHARED_1,
+    "caixin-home": unsupported("推荐/排行成员与顺序无法按历史还原，只能读到当前内容。"),
+    "caixin-world": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="现存公开列表，翻页重复，未证明覆盖整段缺口。",
+        verified_at="2026-10-14",
+        time_precision="minute",
+    ),
+    "caijing-selected": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="现存公开列表，翻页重复；日期只到日。",
+        verified_at="2026-10-14",
+        time_precision="day",
+    ),
+}

@@ -13,6 +13,14 @@ from whats_hot_api.utils.newsflash import (
     metrics,
     to_int,
 )
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+)
 
 ROUTE_NAME = "eastmoney"
 
@@ -55,7 +63,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(type_param: str, no_cache: bool) -> dict:
+async def _get_list(type_param: str, no_cache: bool, *, sort_end: str = "") -> dict:
     type_info = list_type.get(type_param, list_type["important"])
     column = type_info["column"]
     url = "https://np-listapi.eastmoney.com/comm/web/getFastNewsList"
@@ -68,7 +76,7 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
             "client": "web",
             "biz": "web_724",
             "fastColumn": column,
-            "sortEnd": "",
+            "sortEnd": sort_end,
             "pageSize": "50",
             "req_trace": "1",
         },
@@ -113,4 +121,42 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data,
+        "raw": raw,
+        "sort_end": (raw.get("data") or {}).get("sortEnd") if items else None,
     }
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages by echoing the upstream ``data.sortEnd`` as ``sortEnd``."""
+    state = decode_cursor(cursor)
+    list_data = await _get_list(path_type, True, sort_end=str(state.get("sortEnd") or ""))
+    type_info = list_type.get(path_type, list_type["important"])
+    sort_end = list_data["sort_end"]
+    return BackfillPage(
+        data=RouterData(
+            kind="newsflash",
+            **{**ROUTE_META, "type": type_info["name"]},
+            total=len(list_data["data"]),
+            fromCache=False,
+            updateTime=list_data["update_time"],
+            data=list_data["data"],
+        ),
+        next_cursor=encode_cursor({"sortEnd": str(sort_end)}) if sort_end else None,
+        raw_digest=payload_digest(list_data["raw"]),
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.OPAQUE_CURSOR,
+        notes="getFastNewsList：sortEnd 取上游 data.sortEnd 原样回传，fastColumn 保持频道。",
+        verified_at="2026-10-14",
+    ),
+}

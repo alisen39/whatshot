@@ -10,8 +10,17 @@ from urllib.parse import urlencode
 
 from starlette.requests import Request
 
+from whats_hot_api.backfill import (
+    PAGED_STRATEGIES,
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    payload_digest,
+    resolve_spec,
+)
 from whats_hot_api.catalog import RouteCatalog, RouteSpec, route_catalog
 from whats_hot_api.fetch.errors import (
+    FetchBackfillUnsupportedError,
     FetchCacheMissError,
     FetchError,
     FetchInvalidRequestError,
@@ -27,7 +36,11 @@ from whats_hot_api.fetch.models import (
     SourceDescriptor,
 )
 from whats_hot_api.models import RouterData
-from whats_hot_api.utils.http_client import CacheOnlyMiss, force_cache_only
+from whats_hot_api.utils.http_client import (
+    CacheOnlyMiss,
+    bypass_cache,
+    force_cache_only,
+)
 
 DEFAULT_PATH_TYPE = "hot"
 
@@ -86,33 +99,7 @@ class FetchService:
         return self._describe(self._get_spec(site))
 
     async def fetch(self, request: FetchRequest) -> FetchResult:
-        self._validate_request(request)
-        spec = self._get_spec(request.site)
-        descriptor = self._describe(spec)
-        if descriptor.validate_type and request.path_type not in descriptor.types:
-            raise FetchTypeNotFoundError(
-                (f"Unknown type '{request.path_type}' for source '{request.site}'."),
-                details={
-                    "site": request.site,
-                    "pathType": request.path_type,
-                    "validTypes": list(descriptor.types),
-                },
-            )
-        try:
-            canonical_board_key(
-                path_type=request.path_type,
-                params=request.params,
-                declared_dimensions=(descriptor.params or {}).keys(),
-            )
-        except BoardIdentityError as exc:
-            raise FetchInvalidRequestError(
-                str(exc),
-                details={
-                    "site": request.site,
-                    "declaredDimensions": list((descriptor.params or {}).keys()),
-                },
-            ) from exc
-
+        spec, _descriptor = self._resolve_board(request)
         no_cache = request.cache_policy is CachePolicy.REFRESH
         cache_context = (
             force_cache_only()
@@ -144,15 +131,7 @@ class FetchService:
                 },
             ) from exc
 
-        if not isinstance(route_data, RouterData):
-            raise FetchUpstreamError(
-                f"Source '{request.site}' returned invalid data.",
-                details={
-                    "site": request.site,
-                    "pathType": request.path_type,
-                },
-            )
-
+        route_data = self._checked_route_data(request, route_data)
         observed_at = datetime.now(UTC)
         if not route_data.fromCache:
             route_data = route_data.model_copy(
@@ -172,6 +151,129 @@ class FetchService:
             data=route_data,
             observed_at=observed_at,
         )
+
+    def describe_backfill(self, site: str, path_type: str) -> BackfillSpec | None:
+        """Declared backfill capability for one route type (None = undeclared)."""
+        return resolve_spec(self._get_spec(site).backfill, path_type)
+
+    def backfill_implemented(self, site: str, path_type: str) -> bool:
+        spec = self._get_spec(site)
+        declared = resolve_spec(spec.backfill, path_type)
+        if declared is None:
+            return False
+        if declared.strategy is BackfillStrategy.SNAPSHOT:
+            return True
+        return declared.strategy in PAGED_STRATEGIES and spec.backfill_page is not None
+
+    async def backfill_page(
+        self,
+        request: FetchRequest,
+        cursor: str | None = None,
+        before: datetime | None = None,
+    ) -> BackfillPage:
+        """Fetch one historical page without touching any response cache.
+
+        The cursor is not a board dimension, so board identity is validated
+        exactly like ``fetch`` and the cursor never reaches ``board_key``.
+        """
+        spec, _descriptor = self._resolve_board(request)
+        declared = resolve_spec(spec.backfill, request.path_type)
+        details = {"site": request.site, "pathType": request.path_type}
+        if declared is None or declared.strategy is BackfillStrategy.UNSUPPORTED:
+            raise FetchBackfillUnsupportedError(
+                f"Source '{request.site}' does not support backfill.",
+                details={**details, "notes": declared.notes if declared else None},
+            )
+        try:
+            with bypass_cache():
+                if declared.strategy is BackfillStrategy.SNAPSHOT:
+                    if cursor:
+                        raise FetchInvalidRequestError(
+                            "Snapshot sources have a single page.", details=details
+                        )
+                    route_data = await spec.handle_route(_request_for(request), True)
+                    page = BackfillPage(
+                        data=route_data,
+                        next_cursor=None,
+                        raw_digest=payload_digest(
+                            [item.model_dump() for item in route_data.data]
+                        )
+                        if isinstance(route_data, RouterData)
+                        else None,
+                    )
+                else:
+                    if spec.backfill_page is None:
+                        raise FetchBackfillUnsupportedError(
+                            f"Backfill for '{request.site}' is declared but not implemented.",
+                            details={**details, "strategy": declared.strategy.value},
+                        )
+                    params = {
+                        str(key): str(value)
+                        for key, value in request.params.items()
+                        if key != "type"
+                    }
+                    page = await spec.backfill_page(
+                        request.path_type,
+                        params,
+                        cursor,
+                        before=before if declared.supports_before else None,
+                    )
+        except FetchError:
+            raise
+        except Exception as exc:
+            raise FetchUpstreamError(
+                f"Source '{request.site}' backfill page failed.",
+                details={**details, "cursor": cursor, "error": type(exc).__name__},
+            ) from exc
+        if not isinstance(page, BackfillPage):
+            raise FetchUpstreamError(
+                f"Source '{request.site}' returned an invalid backfill page.",
+                details=details,
+            )
+        data = self._checked_route_data(request, page.data)
+        return BackfillPage(data=data, next_cursor=page.next_cursor, raw_digest=page.raw_digest)
+
+    def _resolve_board(self, request: FetchRequest) -> tuple[RouteSpec, SourceDescriptor]:
+        self._validate_request(request)
+        spec = self._get_spec(request.site)
+        descriptor = self._describe(spec)
+        if descriptor.validate_type and request.path_type not in descriptor.types:
+            raise FetchTypeNotFoundError(
+                (f"Unknown type '{request.path_type}' for source '{request.site}'."),
+                details={
+                    "site": request.site,
+                    "pathType": request.path_type,
+                    "validTypes": list(descriptor.types),
+                },
+            )
+        try:
+            canonical_board_key(
+                path_type=request.path_type,
+                params=request.params,
+                declared_dimensions=(descriptor.params or {}).keys(),
+            )
+        except BoardIdentityError as exc:
+            raise FetchInvalidRequestError(
+                str(exc),
+                details={
+                    "site": request.site,
+                    "declaredDimensions": list((descriptor.params or {}).keys()),
+                },
+            ) from exc
+
+        return spec, descriptor
+
+    @staticmethod
+    def _checked_route_data(request: FetchRequest, route_data: object) -> RouterData:
+        if not isinstance(route_data, RouterData):
+            raise FetchUpstreamError(
+                f"Source '{request.site}' returned invalid data.",
+                details={
+                    "site": request.site,
+                    "pathType": request.path_type,
+                },
+            )
+        return route_data
 
     def _get_spec(self, site: str) -> RouteSpec:
         spec = self._routes.get(site)

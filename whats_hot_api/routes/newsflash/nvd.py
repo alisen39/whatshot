@@ -10,6 +10,7 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import compact_strings, metrics, text_or_none
+from whats_hot_api.backfill import unsupported
 
 ROUTE_NAME = "nvd"
 SOURCE_LINK = "https://nvd.nist.gov/vuln"
@@ -178,3 +179,9 @@ def _weaknesses(cve: dict[str, Any]) -> list[str]:
             if value and value not in values:
                 values.append(value)
     return values
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL = {
+    "*": unsupported("Cloud 未将该源归为快讯，回溯能力未调研。"),
+}

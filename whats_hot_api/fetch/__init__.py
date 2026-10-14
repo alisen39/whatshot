@@ -1,6 +1,7 @@
 """Reusable route fetching facade for HTTP, CLI, Scheduler, and Backend APIs."""
 
 from whats_hot_api.fetch.errors import (
+    FetchBackfillUnsupportedError,
     FetchCacheMissError,
     FetchError,
     FetchInvalidRequestError,
@@ -23,6 +24,7 @@ from whats_hot_api.fetch.models import (
 from whats_hot_api.fetch.service import FetchService
 
 __all__ = [
+    "FetchBackfillUnsupportedError",
     "CachePolicy",
     "BOARD_KEY_VERSION",
     "SUPPORTED_BOARD_DIMENSIONS",

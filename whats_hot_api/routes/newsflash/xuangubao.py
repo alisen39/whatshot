@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from starlette.requests import Request
 
 from whats_hot_api.config import config
@@ -7,6 +9,14 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import compact_strings, strip_html, text_or_none
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+)
 
 ROUTE_NAME = "xuangubao"
 
@@ -22,6 +32,10 @@ ROUTE_META: dict = {
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
+    return _router_data(list_data)
+
+
+def _router_data(list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -33,7 +47,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool) -> dict:
+async def _get_list(no_cache: bool, *, cursor: int | None = None) -> dict:
     url = "https://baoer-api.xuangubao.com.cn/api/v6/report/reports/list"
     result = await get(
         url=url,
@@ -44,6 +58,8 @@ async def _get_list(no_cache: bool) -> dict:
             "limit": "20",
             "tag_ids": "",
             "category_ids": "",
+            # cursor = published_at seconds, inclusive upstream.
+            **({"cursor": str(cursor)} if cursor is not None else {}),
         },
         headers={
             "User-Agent": "Mozilla/5.0",
@@ -79,8 +95,42 @@ async def _get_list(no_cache: bool) -> dict:
                 mobileUrl=detail_url,
             )
         )
+    published = [int(item["published_at"]) for item in items if item.get("published_at")]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data,
+        "raw": payload,
+        "next": min(published) if published else None,
     }
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before: datetime | None = None,
+) -> BackfillPage:
+    """Older pages with ``cursor`` = the previous page's oldest ``published_at``."""
+    value = decode_cursor(cursor).get("cursor")
+    if value is None and before is not None:
+        value = int(before.timestamp())
+    list_data = await _get_list(True, cursor=value)
+    next_value = list_data["next"]
+    return BackfillPage(
+        data=_router_data(list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"cursor": next_value}) if next_value and list_data["data"] else None,
+        raw_digest=payload_digest(list_data["raw"]),
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.TIME_CURSOR,
+        notes="reports/list：cursor=上一页最老 published_at 秒，保留 tag_ids/category_ids。",
+        supports_before=True,
+        verified_at="2026-10-14",
+    ),
+}

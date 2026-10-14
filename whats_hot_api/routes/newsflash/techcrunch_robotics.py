@@ -6,6 +6,13 @@ from starlette.requests import Request
 from whats_hot_api.models import ListItem, NewsFlashItem, RouterData
 from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+)
 
 ROUTE_NAME = "techcrunch-robotics"
 SOURCE_LINK = "https://techcrunch.com/category/robotics/"
@@ -29,6 +36,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     requested_type = request.query_params.get("type", "robotics")
     board_type = requested_type if requested_type in TYPE_MAP else "robotics"
     list_data = await _get_list(no_cache)
+    return _router_data(board_type, list_data)
+
+
+def _router_data(board_type: str, list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -40,9 +51,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool) -> dict:
+async def _get_list(no_cache: bool, *, page: int = 1) -> dict:
+    # WordPress feeds page with ?paged=N; page 1 keeps the plain realtime URL.
     result = await get(
-        url=FEED_URL,
+        url=FEED_URL if page == 1 else f"{FEED_URL}?paged={page}",
         no_cache=no_cache,
         response_type="text",
         headers={
@@ -93,3 +105,34 @@ def _as_newsflash(item: ListItem, tags: list[str]) -> NewsFlashItem:
         url=item.url,
         mobileUrl=item.mobileUrl or item.url,
     )
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via the WordPress feed ``?paged=N``; past the end is empty or 404."""
+    page = int(decode_cursor(cursor).get("page") or 1)
+    try:
+        list_data = await _get_list(True, page=page)
+    except Exception:
+        if page == 1:
+            raise
+        return BackfillPage(data=_router_data("robotics", {"from_cache": False, "update_time": "", "data": []}), next_cursor=None)
+    return BackfillPage(
+        data=_router_data("robotics", list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"page": page + 1}) if list_data["data"] else None,
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="Robotics RSS feed?paged=N，已实测推进。",
+        verified_at="2026-10-14",
+    ),
+}

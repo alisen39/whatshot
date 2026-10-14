@@ -9,6 +9,7 @@ from whats_hot_api.config import config
 from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import compact_strings, strip_html
+from whats_hot_api.backfill import BackfillSpec, BackfillStrategy
 
 ROUTE_NAME = "coindesk-news"
 SOURCE_LINK = "https://www.coindesk.com/"
@@ -112,3 +113,13 @@ def _parse_pub_date(value: str) -> int | None:
         return int(parsedate_to_datetime(value).timestamp() * 1000)
     except (TypeError, ValueError, IndexError, OverflowError):
         return None
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="官方 RSS 约 25 条近期窗口，paged 不推进。",
+        verified_at="2026-10-14",
+    ),
+}

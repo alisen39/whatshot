@@ -16,6 +16,15 @@ from whats_hot_api.utils.newsflash import (
     text_or_none,
     to_int,
 )
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+    unsupported,
+)
 
 ROUTE_NAME = "wallstreetcn"
 
@@ -48,9 +57,13 @@ ROUTE_META: dict = {
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     type_param = request.query_params.get("type", "global")
-    type_info = list_type.get(type_param, list_type["global"])
     selected_type = type_param if type_param in list_type else "global"
     list_data = await _get_featured_list(selected_type, no_cache) if selected_type in {"latest", "hot"} else await _get_list(selected_type, no_cache)
+    return _router_data(selected_type, list_data)
+
+
+def _router_data(selected_type: str, list_data: dict) -> RouterData:
+    type_info = list_type.get(selected_type, list_type["global"])
     return RouterData(
         kind="newsflash",
         **{**ROUTE_META, "type": type_info["name"]},
@@ -61,7 +74,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(type_param: str, no_cache: bool) -> dict:
+async def _get_list(type_param: str, no_cache: bool, *, cursor: str | None = None) -> dict:
     type_info = list_type.get(type_param, list_type["global"])
     channel = type_info["channel"]
     url = "https://api-one-wscn.awtmt.com/apiv1/content/lives"
@@ -74,6 +87,8 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
             "channel": channel,
             "client": "pc",
             "limit": "50",
+            # cursor = display_time bound, exclusive upstream.
+            **({"cursor": cursor} if cursor else {}),
         },
         headers={
             "User-Agent": "Mozilla/5.0",
@@ -82,7 +97,8 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
         },
     )
 
-    items = (result.data or {}).get("data", {}).get("items") or []
+    raw_payload = result.data or {}
+    items = raw_payload.get("data", {}).get("items") or []
     data: list[NewsFlashItem] = []
     for it in items:
         title = (it.get("title") or "").strip()
@@ -122,20 +138,28 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
                 mobileUrl=uri,
             )
         )
+    times = [int(it["display_time"]) for it in items if it.get("display_time")]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data,
+        "raw": raw_payload,
+        # +1 keeps the oldest second inclusive against the exclusive bound.
+        "next": str(min(times) + 1) if times else None,
     }
 
 
-async def _get_featured_list(board_type: str, no_cache: bool) -> dict:
+async def _get_featured_list(board_type: str, no_cache: bool, *, cursor: str | None = None) -> dict:
     if board_type == "hot":
         url = "https://api-one.wallstcn.com/apiv1/content/articles/hot"
         params = {"period": "all"}
     else:
         url = "https://api-one.wallstcn.com/apiv1/content/information-flow"
         params = {"channel": "global-channel", "accept": "article", "limit": "30"}
+        if cursor:
+            # Older pages only answer on channel=global with action=upglide.
+            params = {"channel": "global", "accept": "article", "limit": "30",
+                      "cursor": cursor, "action": "upglide"}
     result = await get(
         url=url, params=params, no_cache=no_cache, ttl=config.NEWSFLASH_CACHE_TTL,
         response_type="json", headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", "Accept": "application/json"},
@@ -159,4 +183,39 @@ async def _get_featured_list(board_type: str, no_cache: bool) -> dict:
             tags=[list_type[board_type]["name"]], timestamp=get_time(source.get("display_time")),
             url=uri, mobileUrl=uri,
         ))
-    return {"from_cache": result.from_cache, "update_time": result.update_time, "data": items}
+    next_cursor = ((result.data or {}).get("data") or {}).get("next_cursor") if raw else None
+    return {"from_cache": result.from_cache, "update_time": result.update_time, "data": items,
+            "raw": result.data, "next": next_cursor or None}
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Lives page by display-time ``cursor``; ``latest`` follows information-flow ``next_cursor``."""
+    selected_type = path_type if path_type in list_type else "global"
+    upstream_cursor = decode_cursor(cursor).get("cursor")
+    if selected_type == "latest":
+        list_data = await _get_featured_list(selected_type, True, cursor=upstream_cursor)
+    else:
+        list_data = await _get_list(selected_type, True, cursor=upstream_cursor)
+    next_value = list_data["next"]
+    return BackfillPage(
+        data=_router_data(selected_type, list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"cursor": next_value}) if next_value else None,
+        raw_digest=payload_digest(list_data["raw"]),
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.OPAQUE_CURSOR,
+        notes="lives 频道 cursor=上一页最老 display_time+1（上游不含边界，即 data.next_cursor+1）；最新文章 information-flow channel=global、action=upglide、next_cursor。",
+        verified_at="2026-10-14",
+    ),
+    "hot": unsupported("推荐/排行成员与顺序无法按历史还原，只能读到当前内容。"),
+}

@@ -9,6 +9,7 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import post
 from whats_hot_api.utils.newsflash import text_or_none
+from whats_hot_api.backfill import BackfillSpec, BackfillStrategy
 
 ROUTE_NAME = "tencent-hunyuan"
 SOURCE_LINK = "https://hunyuan.tencent.com/research"
@@ -99,3 +100,14 @@ def _detail_url(row: dict, item_id: str) -> str:
         else item_id
     )
     return f"{SOURCE_LINK}/{slug}"
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="POST publicList 第 1 页 11 条，第 2 页业务成功但 data 为空。",
+        verified_at="2026-10-14",
+        time_precision="day",
+    ),
+}

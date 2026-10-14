@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 import re
 
 from starlette.requests import Request
@@ -9,6 +10,14 @@ from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import strip_html
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+)
 
 ROUTE_NAME = "cls-depth"
 
@@ -56,13 +65,19 @@ _PINNED_PATHS = {1: "subject", 2: "topic"}
 _WS_RE = re.compile(r"\s+")
 
 
-def _signed_url(channel_id: int) -> str:
+def _signed_url(channel_id: int, last_time: int | None = None) -> str:
     # sign = md5(sha1(按键排序的 k=v&k=v)),无密钥、无时间戳,本地计算;缺失或与
     # 参数集不自洽时接口返回 errno=10012「签名错误」(HTTP 仍是 200)。
-    qs = "&".join(f"{key}={value}" for key, value in sorted(_BASE_PARAMS.items()))
+    # 带 last_time 时走「加载更多」接口 /v3/depth/list/{频道}(ctime 严格小于 last_time)。
+    params = dict(_BASE_PARAMS)
+    endpoint = "home/assembled"
+    if last_time is not None:
+        params.update(id=str(channel_id), last_time=str(last_time), rn="20")
+        endpoint = "list"
+    qs = "&".join(f"{key}={value}" for key, value in sorted(params.items()))
     sha1_value = hashlib.sha1(qs.encode(), usedforsecurity=False).hexdigest()
     sign = hashlib.md5(sha1_value.encode(), usedforsecurity=False).hexdigest()
-    return f"https://www.cls.cn/v3/depth/home/assembled/{channel_id}?{qs}&sign={sign}"
+    return f"https://www.cls.cn/v3/depth/{endpoint}/{channel_id}?{qs}&sign={sign}"
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
@@ -142,3 +157,54 @@ def _item(row: object, pinned: bool) -> ListItem | None:
         desc=_clean_text(row.get("brief")),
         timestamp=get_time(row.get("ctime")),  # ctime 秒级,get_time 统一转毫秒
     )
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before: datetime | None = None,
+) -> BackfillPage:
+    """First page = the assembled channel page; older pages from ``depth/list``
+    with ``last_time`` = oldest list ``ctime`` + 1 (the bound is exclusive)."""
+    if path_type not in _CHANNELS:
+        raise ValueError(f"Unknown board '{path_type}' for route '{ROUTE_NAME}'")
+    channel_id, label = _CHANNELS[path_type]
+    last_time = decode_cursor(cursor).get("lastTime")
+    if last_time is None and before is not None:
+        last_time = int(before.timestamp())
+    result = await get(url=_signed_url(channel_id, last_time), no_cache=True, response_type="json")
+    payload = result.data if isinstance(result.data, dict) else {}
+    if payload.get("errno") != 0:
+        raise RuntimeError(f"CLS depth {path_type} returned errno={payload.get('errno')}")
+    body = payload.get("data")
+    rows = body if isinstance(body, list) else (body or {}).get("depth_list") or []
+    items = (
+        _parse_items({"depth_list": rows})
+        if last_time is not None
+        else _parse_items(body if isinstance(body, dict) else {})
+    )
+    ctimes = [int(row["ctime"]) for row in rows if isinstance(row, dict) and row.get("ctime")]
+    return BackfillPage(
+        data=RouterData(kind="newsflash", **ROUTE_META, type=label, total=len(items),
+                        fromCache=False, updateTime=result.update_time, data=items),
+        next_cursor=encode_cursor({"lastTime": min(ctimes) + 1}) if ctimes else None,
+        raw_digest=payload_digest(payload),
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.TIME_CURSOR,
+        notes="/v3/depth/list/{频道}：last_time=尾项 ctime（含边界），参数排序后 md5(sha1) 重签。",
+        supports_before=True,
+        verified_at="2026-10-14",
+    ),
+    "headline": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="头条历史在到达缺口起点前即返回空列表，不能证明过去头条归属。",
+        verified_at="2026-10-14",
+    ),
+}

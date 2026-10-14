@@ -55,3 +55,8 @@ class FetchUpstreamError(FetchError):
     code = "UPSTREAM_FAILURE"
     status_code = 502
     retryable = True
+
+
+class FetchBackfillUnsupportedError(FetchError):
+    code = "BACKFILL_UNSUPPORTED"
+    status_code = 409

@@ -16,6 +16,8 @@ class RouteSpec:
     category_label: str
     metadata: Mapping[str, Any] | None = None
     validate_type: bool = True
+    backfill: Mapping[str, Any] | None = None
+    backfill_page: Callable[..., Any] | None = None
 
 
 class RouteCatalog:
@@ -35,6 +37,8 @@ class RouteCatalog:
         metadata = getattr(info, "metadata", None)
         if not isinstance(metadata, Mapping):
             metadata = getattr(module, "ROUTE_META", None) if module else None
+        backfill = getattr(module, "BACKFILL", None) if module else None
+        backfill_page = getattr(module, "backfill_page", None) if module else None
         return RouteSpec(
             name=name,
             handle_route=info.handle_route,
@@ -48,6 +52,8 @@ class RouteCatalog:
                     getattr(module, "ROUTE_VALIDATE_TYPE", True) if module else True,
                 )
             ),
+            backfill=backfill if isinstance(backfill, Mapping) else None,
+            backfill_page=backfill_page if callable(backfill_page) else None,
         )
 
     def names(self) -> tuple[str, ...]:

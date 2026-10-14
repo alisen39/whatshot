@@ -10,6 +10,13 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import metrics
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+)
 
 ROUTE_NAME = "telegram-osint"
 
@@ -48,6 +55,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     requested_type = request.query_params.get("type", "intelslava")
     selected_type = requested_type if requested_type in CHANNELS else "intelslava"
     list_data = await _get_channel(selected_type, no_cache)
+    return _router_data(selected_type, list_data)
+
+
+def _router_data(selected_type: str, list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -59,12 +70,14 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_channel(selected_type: str, no_cache: bool) -> dict:
+async def _get_channel(selected_type: str, no_cache: bool, *, before: str | None = None) -> dict:
     channel = CHANNELS[selected_type]
     channel_id = channel["id"]
     url = f"https://t.me/s/{channel_id}"
     result = await get(
         url=url,
+        # before=<message id> lists strictly older messages.
+        params={"before": before} if before else None,
         no_cache=no_cache,
         ttl=config.NEWSFLASH_CACHE_TTL,
         response_type="text",
@@ -117,11 +130,37 @@ async def _get_channel(selected_type: str, no_cache: bool) -> dict:
             )
         )
     data.sort(key=lambda item: item.timestamp or 0, reverse=True)
+    message_ids = [
+        int(tail)
+        for node in soup.select(".tgme_widget_message[data-post]")
+        if (tail := str(node.get("data-post") or "").rpartition("/")[2]).isdigit()
+    ]
     return {
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data[:20],
+        "all": data,
+        "min_message_id": min(message_ids) if message_ids else None,
     }
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via ``?before=<smallest message id on the previous page>``."""
+    selected_type = path_type if path_type in CHANNELS else "intelslava"
+    list_data = await _get_channel(selected_type, True, before=decode_cursor(cursor).get("before"))
+    # History pages keep every parsed message, not the realtime top 20.
+    list_data = {**list_data, "data": list_data["all"]}
+    min_id = list_data["min_message_id"]
+    return BackfillPage(
+        data=_router_data(selected_type, list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"before": str(min_id)}) if min_id and min_id > 1 else None,
+    )
 
 
 def _title_from_content(content: str, limit: int = 120) -> str:
@@ -147,3 +186,13 @@ def _parse_views(value: str | None) -> int | None:
     number = float(match.group(1))
     multiplier = {"": 1, "K": 1_000, "M": 1_000_000}[match.group(2)]
     return int(number * multiplier)
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.OPAQUE_CURSOR,
+        notes="t.me/s/{频道}?before=上一页最小消息 ID；需新加坡网络。",
+        verified_at="2026-10-14",
+    ),
+}

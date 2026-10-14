@@ -4,6 +4,7 @@ from starlette.requests import Request
 
 from whats_hot_api.models import RouterData
 from whats_hot_api.utils.rsshub import fetch_rsshub_feed
+from whats_hot_api.backfill import BackfillSpec, BackfillStrategy
 
 ROUTE_NAME = 'cointelegraph'
 SOURCE_LINK = 'https://cointelegraph.com/'
@@ -32,3 +33,13 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData: 
         updateTime=list_data["update_time"],
         data=list_data["data"],
     )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.SNAPSHOT,
+        notes="RSSHub 返回 25 条 RSS，paged 不推进；请求偶发超时。",
+        verified_at="2026-10-14",
+    ),
+}

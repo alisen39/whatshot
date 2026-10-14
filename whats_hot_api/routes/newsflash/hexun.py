@@ -18,6 +18,13 @@ from whats_hot_api.utils.newsflash import (
     text_or_none,
     to_int,
 )
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+)
 
 ROUTE_NAME = "hexun"
 
@@ -33,6 +40,10 @@ ROUTE_META: dict = {
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
+    return _router_data(list_data)
+
+
+def _router_data(list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -44,7 +55,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool) -> dict:
+async def _get_list(no_cache: bool, *, page: int = 1) -> dict:
     url = "https://opentool.hexun.com/MongodbNewsService/getNewsListByJson.jsp"
     result = await get(
         url=url,
@@ -54,7 +65,7 @@ async def _get_list(no_cache: bool) -> dict:
         params={
             "id": "189223574",
             "s": "20",
-            "cp": "1",
+            "cp": str(page),
             "callback": "whats_hot_hexun",
         },
         headers={
@@ -129,3 +140,29 @@ def _split_tags(value: object) -> list[str]:
             seen.add(text)
             result.append(text)
     return result
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via ``cp=N`` (JSONP; offset paging)."""
+    page = int(decode_cursor(cursor).get("page") or 1)
+    list_data = await _get_list(True, page=page)
+    return BackfillPage(
+        data=_router_data(list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"page": page + 1}) if list_data["data"] else None,
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="getNewsListByJson.jsp?cp=N，JSONP 解包。",
+        verified_at="2026-10-14",
+    ),
+}

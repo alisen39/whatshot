@@ -18,6 +18,15 @@ from whats_hot_api.utils.newsflash import (
     to_int,
     truthy_flag,
 )
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    payload_digest,
+    unsupported,
+)
 
 ROUTE_NAME = "sina-finance"
 
@@ -84,7 +93,12 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(type_param: str, no_cache: bool) -> dict:
+async def _get_list(
+    type_param: str,
+    no_cache: bool,
+    *,
+    cursor_params: dict[str, str] | None = None,
+) -> dict:
     type_info = list_type.get(type_param, list_type["all"])
     tag = type_info["tag"]
     url = "https://app.cj.sina.com.cn/api/news/pc"
@@ -97,6 +111,7 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
             "page": "1",
             "size": "50",
             "tag": tag,
+            **(cursor_params or {}),
         },
         headers={
             "User-Agent": "Mozilla/5.0",
@@ -105,7 +120,8 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
     )
 
     raw = result.data or {}
-    items = (((raw.get("result") or {}).get("data") or {}).get("feed") or {}).get("list") or []
+    feed = ((raw.get("result") or {}).get("data") or {}).get("feed") or {}
+    items = feed.get("list") or []
     data: list[NewsFlashItem] = []
     for it in items:
         content = strip_html(it.get("rich_text") or "").strip()
@@ -140,7 +156,36 @@ async def _get_list(type_param: str, no_cache: bool) -> dict:
         "from_cache": result.from_cache,
         "update_time": result.update_time,
         "data": data,
+        "raw": raw,
+        "min_id": feed.get("min_id") if items else None,
     }
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via ``id=<previous feed.min_id>&type=1`` (exclusive of min_id)."""
+    state = decode_cursor(cursor)
+    cursor_params = {"id": str(state["minId"]), "type": "1"} if state.get("minId") else None
+    list_data = await _get_list(path_type, True, cursor_params=cursor_params)
+    type_label = list_type.get(path_type, list_type["all"])["name"]
+    min_id = list_data["min_id"]
+    return BackfillPage(
+        data=RouterData(
+            kind="newsflash",
+            **{**ROUTE_META, "type": type_label},
+            total=len(list_data["data"]),
+            fromCache=False,
+            updateTime=list_data["update_time"],
+            data=list_data["data"],
+        ),
+        next_cursor=encode_cursor({"minId": min_id}) if min_id else None,
+        raw_digest=payload_digest(list_data["raw"]),
+    )
 
 
 async def _get_hot_stocks(type_param: str, no_cache: bool) -> dict:
@@ -250,3 +295,19 @@ def _parse_ext(value: object) -> dict:
     except (TypeError, ValueError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+_BACKFILL_SHARED_1 = unsupported("热榜/行情榜，不属于快讯。")
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.OPAQUE_CURSOR,
+        notes="api/news/pc：id=上游 feed.min_id&type=1，保留 tag；单独改 page 无效。",
+        verified_at="2026-10-14",
+    ),
+    "hot-stock-cn": _BACKFILL_SHARED_1,
+    "hot-stock-hk": _BACKFILL_SHARED_1,
+    "hot-stock-us": _BACKFILL_SHARED_1,
+    "hot-stock-fx": _BACKFILL_SHARED_1,
+    "hot-stock-futures": _BACKFILL_SHARED_1,
+}

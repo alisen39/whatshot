@@ -21,6 +21,14 @@ from whats_hot_api.utils.newsflash import (
     to_int,
 )
 from whats_hot_api.utils.tokens.ths import generate_hexin_v
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+    unsupported,
+)
 
 ROUTE_NAME = "ths-10jqka"
 
@@ -108,6 +116,10 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         )
     else:
         list_data = await _get_news_list(selected_type, no_cache)
+    return _router_data(selected_type, list_data)
+
+
+def _router_data(selected_type: str, list_data: dict) -> RouterData:
     return RouterData(
         kind=(
             "hotlist"
@@ -344,7 +356,7 @@ def _billions_to_yuan(value: object) -> int | None:
         return None
 
 
-async def _get_flash_list(no_cache: bool) -> dict:
+async def _get_flash_list(no_cache: bool, *, page: int = 1) -> dict:
     url = "https://news.10jqka.com.cn/tapp/news/push/stock"
     result = await get(
         url=url,
@@ -352,7 +364,7 @@ async def _get_flash_list(no_cache: bool) -> dict:
         ttl=config.NEWSFLASH_CACHE_TTL,
         response_type="json",
         params={
-            "page": "1",
+            "page": str(page),
             "tag": "21101",
             "track": "website",
         },
@@ -410,9 +422,10 @@ async def _get_flash_list(no_cache: bool) -> dict:
     }
 
 
-async def _get_news_list(selected_type: str, no_cache: bool) -> dict:
+async def _get_news_list(selected_type: str, no_cache: bool, *, page: int = 1) -> dict:
     path = _NEWS_LIST_PATHS[selected_type]
-    url = f"https://news.10jqka.com.cn/{path}/"
+    # The public pager links index_N.shtml (N <= 20) for older pages.
+    url = f"https://news.10jqka.com.cn/{path}/" + (f"index_{page}.shtml" if page > 1 else "")
     result = await get(
         url=url,
         no_cache=no_cache,
@@ -462,6 +475,27 @@ async def _get_news_list(selected_type: str, no_cache: bool) -> dict:
     }
 
 
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """``quick`` pages via ``page=N``; news columns via ``index_N.shtml``."""
+    if path_type not in _NEWS_LIST_PATHS and path_type != "quick":
+        raise ValueError(f"ths-10jqka:{path_type} is not a newsflash board")
+    page = int(decode_cursor(cursor).get("page") or 1)
+    if path_type == "quick":
+        list_data = await _get_flash_list(True, page=page)
+    else:
+        list_data = await _get_news_list(path_type, True, page=page)
+    return BackfillPage(
+        data=_router_data(path_type, list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"page": page + 1}) if list_data["data"] else None,
+    )
+
+
 def _https_url(value: object) -> str | None:
     url = text_or_none(value)
     if not url:
@@ -483,3 +517,31 @@ def _merge_tags(*groups: object) -> list[str]:
                 seen.add(text)
                 result.append(text)
     return result
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+_BACKFILL_SHARED_1 = BackfillSpec(
+    strategy=BackfillStrategy.PAGE_NUMBER,
+    notes="原站 index_N.shtml，公开页号最多 20；页码会漂移，需多轮合并。",
+    max_pages=20,
+    time_precision="minute",
+    verified_at="2026-10-14",
+)
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": unsupported("热榜/资金流榜，不属于快讯。"),
+    "quick": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="tapp/news/push/stock?page=N；分钟精度。",
+        time_precision="minute",
+        verified_at="2026-10-14",
+    ),
+    "today": _BACKFILL_SHARED_1,
+    "macro": _BACKFILL_SHARED_1,
+    "industry": _BACKFILL_SHARED_1,
+    "global": _BACKFILL_SHARED_1,
+    "market": _BACKFILL_SHARED_1,
+    "company": _BACKFILL_SHARED_1,
+    "region": _BACKFILL_SHARED_1,
+    "comment": _BACKFILL_SHARED_1,
+    "people": _BACKFILL_SHARED_1,
+}

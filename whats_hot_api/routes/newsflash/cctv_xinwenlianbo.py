@@ -14,6 +14,7 @@ from whats_hot_api.config import config
 from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
+from whats_hot_api.backfill import unsupported
 
 ROUTE_NAME = "cctv-xinwenlianbo"
 
@@ -122,3 +123,9 @@ def _clean_title(value: object) -> str:
 def _item_id(url: str) -> str:
     filename = url.rstrip("/").rsplit("/", 1)[-1]
     return filename.removesuffix(".shtml")
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL = {
+    "*": unsupported("Cloud 未将该源归为快讯，回溯能力未调研。"),
+}

@@ -11,6 +11,13 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import text_or_none
+from whats_hot_api.backfill import (
+    BackfillPage,
+    BackfillSpec,
+    BackfillStrategy,
+    decode_cursor,
+    encode_cursor,
+)
 
 ROUTE_NAME = "caixin-data"
 
@@ -27,6 +34,10 @@ ROUTE_META: dict = {
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     list_data = await _get_list(no_cache)
+    return _router_data(list_data)
+
+
+def _router_data(list_data: dict) -> RouterData:
     return RouterData(
         kind="newsflash",
         **ROUTE_META,
@@ -38,14 +49,14 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool) -> dict:
+async def _get_list(no_cache: bool, *, page: int = 1) -> dict:
     result = await get(
         url=_API_URL,
         no_cache=no_cache,
         ttl=config.NEWSFLASH_CACHE_TTL,
         response_type="json",
         params={
-            "pageNum": "1",
+            "pageNum": str(page),
             "pageSize": "100",
             "showLabels": "true",
         },
@@ -97,3 +108,30 @@ def _item_id(url: str) -> str:
     if article_id:
         return article_id.group(1)
     return hashlib.sha1(url.encode(), usedforsecurity=False).hexdigest()[:20]
+
+
+async def backfill_page(
+    path_type: str,
+    params: dict[str, str],
+    cursor: str | None,
+    *,
+    before=None,
+) -> BackfillPage:
+    """Older pages via ``pageNum=N&pageSize=100`` (offset paging)."""
+    page = int(decode_cursor(cursor).get("page") or 1)
+    list_data = await _get_list(True, page=page)
+    return BackfillPage(
+        data=_router_data(list_data).model_copy(update={"fromCache": False}),
+        next_cursor=encode_cursor({"page": page + 1}) if list_data["data"] else None,
+    )
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL: dict[str, BackfillSpec] = {
+    "*": BackfillSpec(
+        strategy=BackfillStrategy.PAGE_NUMBER,
+        notes="sjtPc/news?pageNum=N&pageSize=100。",
+        page_size=100,
+        verified_at="2026-10-14",
+    ),
+}

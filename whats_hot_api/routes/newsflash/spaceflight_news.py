@@ -15,6 +15,7 @@ from whats_hot_api.utils.newsflash import (
     text_or_none,
     truthy_flag,
 )
+from whats_hot_api.backfill import unsupported
 
 ROUTE_NAME = "spaceflight-news"
 
@@ -91,3 +92,9 @@ async def _get_list(no_cache: bool) -> dict:
         "update_time": result.update_time,
         "data": data,
     }
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL = {
+    "*": unsupported("Cloud 未将该源归为快讯，回溯能力未调研。"),
+}

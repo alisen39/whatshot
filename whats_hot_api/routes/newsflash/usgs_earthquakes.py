@@ -9,6 +9,7 @@ from whats_hot_api.models import NewsFlashItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.newsflash import metrics, text_or_none
+from whats_hot_api.backfill import unsupported
 
 ROUTE_NAME = "usgs-earthquakes"
 SOURCE_LINK = "https://earthquake.usgs.gov/earthquakes/map/"
@@ -144,3 +145,9 @@ def _labels(*values: object) -> list[str]:
         if label and label not in result:
             result.append(label)
     return result
+
+
+# Backfill capability; see whats_hot_api/backfill.py.
+BACKFILL = {
+    "*": unsupported("Cloud 未将该源归为快讯，回溯能力未调研。"),
+}
