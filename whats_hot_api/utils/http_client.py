@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import http.cookiejar
 import json
 import os
 from contextlib import contextmanager
@@ -56,7 +57,7 @@ def force_cache_only():
 # Keep each upstream origin in its own bounded pool. A single shared pool lets a
 # slow or broken origin consume every connection and turn otherwise healthy
 # sources into PoolTimeout failures.
-ClientKey = tuple[str, str]
+ClientKey = tuple[str, str, bool]
 _clients: dict[ClientKey, httpx.AsyncClient] = {}
 _clients_lock = asyncio.Lock()
 
@@ -104,8 +105,15 @@ def _origin_for_url(url: str) -> str:
     return f"{scheme}://{hostname}:{port}"
 
 
-def _client_key(url: str, proxy: str | None) -> ClientKey:
-    return proxy or "", _origin_for_url(url)
+def _client_key(url: str, proxy: str | None, store_cookies: bool = True) -> ClientKey:
+    return proxy or "", _origin_for_url(url), store_cookies
+
+
+class _NoStoreCookiePolicy(http.cookiejar.DefaultCookiePolicy):
+    """Never keep response cookies: every request goes out cookie-free."""
+
+    def set_ok(self, cookie, request) -> bool:  # noqa: ANN001 - stdlib signature
+        return False
 
 
 def _is_production_environment() -> bool:
@@ -164,8 +172,9 @@ def _get_proxy_for_url(url: str) -> str | None:
 async def _get_client(
     url: str,
     proxy: str | None = None,
+    store_cookies: bool = True,
 ) -> httpx.AsyncClient:
-    key = _client_key(url, proxy)
+    key = _client_key(url, proxy, store_cookies)
     existing = _clients.get(key)
     if existing is not None and not existing.is_closed:
         return existing
@@ -184,6 +193,10 @@ async def _get_client(
                     keepalive_expiry=_KEEPALIVE_EXPIRY_SECONDS,
                 ),
             }
+            if not store_cookies:
+                # Some origins rotate a WAF cookie and then reject the mix of the
+                # new one with stale session cookies (stcn.com, 2026-10-15).
+                kwargs["cookies"] = http.cookiejar.CookieJar(policy=_NoStoreCookiePolicy())
             if proxy:
                 kwargs["proxy"] = proxy
                 logger.info(f"🔗 [PROXY] Creating client with proxy: {proxy}")
@@ -208,10 +221,11 @@ async def _discard_client(
     url: str,
     proxy: str | None,
     client: httpx.AsyncClient,
+    store_cookies: bool = True,
 ) -> None:
     """Remove and close a poisoned origin pool without touching other origins."""
 
-    key = _client_key(url, proxy)
+    key = _client_key(url, proxy, store_cookies)
     async with _clients_lock:
         if _clients.get(key) is not client:
             return
@@ -236,6 +250,7 @@ async def get(
     response_type: str = "json",
     proxy: str | None = None,
     cache_key: str | None = None,
+    store_cookies: bool = True,
 ) -> RequestResult:
     logger.info(f"🌐 [GET] {url}")
     key = _build_cache_key(url, params, cache_key)
@@ -265,7 +280,7 @@ async def get(
                 )
 
         resolved_proxy = proxy or _get_proxy_for_url(url)
-        client = await _get_client(url, resolved_proxy)
+        client = await _get_client(url, resolved_proxy, store_cookies)
         response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
 
@@ -290,14 +305,14 @@ async def get(
         return RequestResult(from_cache=False, update_time=update_time, data=data)
     except asyncio.CancelledError:
         if client is not None:
-            await _discard_client(url, resolved_proxy, client)
+            await _discard_client(url, resolved_proxy, client, store_cookies)
         logger.warning(
             f"⚠️ [HTTP] Cancelled request; discarded pool for {_origin_for_url(url)}"
         )
         raise
     except httpx.PoolTimeout:
         if client is not None:
-            await _discard_client(url, resolved_proxy, client)
+            await _discard_client(url, resolved_proxy, client, store_cookies)
         logger.error(
             f"❌ [HTTP] Pool timeout; discarded pool for {_origin_for_url(url)}"
         )
@@ -317,6 +332,7 @@ async def post(
     response_type: str = "json",
     proxy: str | None = None,
     cache_key: str | None = None,
+    store_cookies: bool = True,
 ) -> RequestResult:
     logger.info(f"🌐 [POST] {url}")
     key = _build_cache_key(url, body if isinstance(body, dict) else None, cache_key)
@@ -346,7 +362,7 @@ async def post(
                 )
 
         resolved_proxy = proxy or _get_proxy_for_url(url)
-        client = await _get_client(url, resolved_proxy)
+        client = await _get_client(url, resolved_proxy, store_cookies)
         if isinstance(body, (dict, list)):
             response = await client.post(url, headers=headers, json=body)
         else:
@@ -375,14 +391,14 @@ async def post(
         return RequestResult(from_cache=False, update_time=update_time, data=data)
     except asyncio.CancelledError:
         if client is not None:
-            await _discard_client(url, resolved_proxy, client)
+            await _discard_client(url, resolved_proxy, client, store_cookies)
         logger.warning(
             f"⚠️ [HTTP] Cancelled request; discarded pool for {_origin_for_url(url)}"
         )
         raise
     except httpx.PoolTimeout:
         if client is not None:
-            await _discard_client(url, resolved_proxy, client)
+            await _discard_client(url, resolved_proxy, client, store_cookies)
         logger.error(
             f"❌ [HTTP] Pool timeout; discarded pool for {_origin_for_url(url)}"
         )

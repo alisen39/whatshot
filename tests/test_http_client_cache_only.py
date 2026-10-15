@@ -618,3 +618,23 @@ async def test_get_no_cache_failure_keeps_existing_cache(monkeypatch):
 
     assert cached.from_cache is True
     assert cached.data == {"value": "stale"}
+
+
+@pytest.mark.asyncio
+async def test_cookie_free_clients_never_store_response_cookies():
+    url = "https://cookie-free.invalid/list"
+    stateless = await http_client._get_client(url, None, store_cookies=False)
+    regular = await http_client._get_client(url, None)
+    try:
+        assert stateless is not regular
+        request = httpx.Request("GET", url)
+        response = httpx.Response(200, headers=[("set-cookie", "acw_tc=rotated; Path=/")], request=request)
+        stateless.cookies.extract_cookies(response)
+        regular.cookies.extract_cookies(response)
+        assert len(stateless.cookies) == 0
+        assert regular.cookies.get("acw_tc") == "rotated"
+    finally:
+        for key in (http_client._client_key(url, None, False), http_client._client_key(url, None)):
+            client = http_client._clients.pop(key, None)
+            if client is not None:
+                await client.aclose()

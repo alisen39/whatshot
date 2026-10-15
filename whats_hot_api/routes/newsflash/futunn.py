@@ -50,8 +50,20 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
-async def _get_list(no_cache: bool, *, seq_mark: str | None = None) -> dict:
-    url = "https://news.futunn.com/news-site-api/main/get-flash-list"
+FLASH_API = "https://news.futunn.com/news-site-api/main/get-flash-list"
+
+
+async def _get_list(
+    no_cache: bool,
+    *,
+    seq_mark: str | None = None,
+    api_url: str = FLASH_API,
+    source_link: str = SOURCE_LINK,
+    source_label: str = "富途牛牛",
+    id_prefix: str = "futunn",
+) -> dict:
+    """Shared by the moomoo route (same Futu flash API on its international host)."""
+    url = api_url
     result = await get(
         url=url,
         no_cache=no_cache,
@@ -61,7 +73,7 @@ async def _get_list(no_cache: bool, *, seq_mark: str | None = None) -> dict:
         headers={
             "User-Agent": "Mozilla/5.0",
             "Accept": "application/json, text/plain, */*",
-            "Referer": SOURCE_LINK,
+            "Referer": source_link,
         },
     )
 
@@ -74,15 +86,15 @@ async def _get_list(no_cache: bool, *, seq_mark: str | None = None) -> dict:
         if not title and not content:
             continue
 
-        detail_url = text_or_none(it.get("detailUrl")) or SOURCE_LINK
+        detail_url = text_or_none(it.get("detailUrl")) or source_link
         level = to_int(it.get("level"))
         data.append(
             NewsFlashItem(
-                id=str(it.get("newsUniqueId") or it.get("id") or f"futunn-{len(data)}"),
+                id=str(it.get("newsUniqueId") or it.get("id") or f"{id_prefix}-{len(data)}"),
                 title=title or content[:60],
                 content=content,
                 contentStatus=content_status(content),
-                source="富途牛牛",
+                source=source_label if id_prefix == "futunn" else (text_or_none(it.get("source")) or source_label),
                 isImportant=truthy_flag(level),
                 images=compact_urls(it.get("pic")),
                 symbols=compact_objects(it.get("relatedStocks")) + compact_objects(it.get("quote")),

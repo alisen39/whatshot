@@ -114,6 +114,9 @@ _XHR_HEADERS = {
     "Accept": "application/json, text/javascript, */*; q=0.01",
     "Referer": WWW + "/article/list/kx.html",
 }
+# All stcn.com requests go out without cookies: after the WAF rotates acw_tc, a
+# pooled client holding it together with older session cookies gets empty kx
+# payloads (state=1, data="") until the pool is rebuilt (2026-10-15 evidence).
 _HTML_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
@@ -293,7 +296,7 @@ def _parse_rank(rows: list[dict[str, Any]]) -> list[ListItem]:
 
 async def _fetch_json_board(url: str, no_cache: bool) -> tuple[RequestResult, list[dict[str, Any]]]:
     """两个 JSON 接口的业务壳:state=1 才是成功;不带 XHR 头时返回整页 HTML,json 解析即失败。"""
-    result = await get(url=url, headers=_XHR_HEADERS, no_cache=no_cache, response_type="json")
+    result = await get(url=url, headers=_XHR_HEADERS, no_cache=no_cache, response_type="json", store_cookies=False)
     payload = result.data
     if not isinstance(payload, dict) or payload.get("state") != 1 or not isinstance(payload.get("data"), list):
         raise RuntimeError(f"STCN api returned an unexpected payload: {str(payload)[:200]}")
@@ -304,7 +307,7 @@ async def _top_news_item(url: str, fallback_title: str, no_cache: bool) -> ListI
     """栏目头条的文章页:完整标题与发布时间;取不到时退回列表页上的截断标题(证据口径)。"""
     item: ListItem | None = None
     try:
-        result = await get(url=url, headers=_HTML_HEADERS, no_cache=no_cache, response_type="text")
+        result = await get(url=url, headers=_HTML_HEADERS, no_cache=no_cache, response_type="text", store_cookies=False)
         page_html = result.data if isinstance(result.data, str) else ""
         # 文章页时间是完整的 YYYY-MM-DD HH:MM,不依赖相对时间基准
         item = _parse_detail(url, page_html, datetime.now(_BEIJING))
@@ -335,6 +338,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
             no_cache=no_cache,
             response_type="text",
             origin_info=True,
+            store_cookies=False,
         )
         wrapped = result.data if isinstance(result.data, dict) else {}
         now = _page_time(wrapped.get("headers") or {})
@@ -388,6 +392,7 @@ async def backfill_page(
         no_cache=True,
         response_type="json",
         origin_info=True,
+        store_cookies=False,
     )
     wrapped = result.data if isinstance(result.data, dict) else {}
     payload = wrapped.get("data") if isinstance(wrapped.get("data"), dict) else {}

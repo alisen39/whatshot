@@ -403,3 +403,26 @@ async def test_p3_page_routes_build_page_requests(monkeypatch):
     assert rec.calls[0]["url"].endswith("&type=json&page=5") and page.next_cursor is None
     with pytest.raises(ValueError):
         await yicai_21jingji.backfill_page("yicai-headline", {}, None)
+
+
+async def test_moomoo_uses_international_host_and_upstream_source(monkeypatch):
+    from whats_hot_api.routes.newsflash import futunn as futunn_module
+    from whats_hot_api.routes.newsflash import moomoo
+
+    news = {"data": {"data": {"seqMark": "M1", "news": [
+        {"id": "9", "newsUniqueId": "9", "content": "CHINEXT SET TO OPEN DOWN", "time": "1792027581", "source": "Reuters"}]}}}
+    rec = Recorder(news, {"data": {"data": {"seqMark": "M2", "news": []}}})
+    monkeypatch.setattr(futunn_module, "get", rec)
+    first = await moomoo.backfill_page("hot", {}, None)
+    assert rec.calls[0]["url"] == moomoo.FLASH_API and rec.calls[0]["headers"]["Referer"] == moomoo.SOURCE_LINK
+    item = first.data.data[0]
+    assert (item.id, item.source, first.data.name) == ("9", "Reuters", "moomoo")
+    last = await moomoo.backfill_page("hot", {}, first.next_cursor)
+    assert rec.calls[1]["params"]["seqMark"] == "M1" and last.next_cursor is None
+
+
+async def test_stcn_requests_never_carry_pooled_cookies(monkeypatch):
+    rec = Recorder({"data": {"state": 1, "data": "", "page_time": 2, "last_time": 1}, "headers": {}})
+    monkeypatch.setattr(stcn_channels, "get", rec)
+    await stcn_channels.backfill_page("yw", {}, None)
+    assert rec.calls[0]["store_cookies"] is False
