@@ -1,344 +1,168 @@
-# 🔥 WhatsHot·什么火了
+<div align="center">
 
-WhatsHot API 是热榜、实时快讯、金价和 RSS/RSSHub 来源的开源聚合核心。它提供
-330+ 个自动发现路由、JSON/RSS 输出、双层缓存、CLI，以及供独立
-`whatshot-mcp` 使用的 Backend Contract。
+# 🔥 WhatsHot · 什么火了
 
-## 能力边界
+**一个工具，看遍全网热榜。**
 
-| 能力 | 说明 |
-| --- | --- |
-| 聚合路由 | 热榜、快讯、金价与 RSS/RSSHub 来源 |
-| Core HTTP API | 站点元信息、榜单数据、JSON 和 RSS 2.0 |
-| Fetch Service | CLI、Scheduler、HTTP API 和 Backend Contract 共用的抓取路径 |
-| 缓存 | Redis + 进程内 TTL，Redis 不可用时自动降级 |
-| Scheduler | 仅采集显式配置的站点和 board |
-| DuckDB 历史库 | 本地历史、关键词搜索、趋势和覆盖信息 |
-| Backend Contract v1 | 独立 MCP 连接的版本化只读 HTTP 契约 |
+微博、知乎、抖音、B 站、GitHub、财联社、周大福……<br>
+把 400+ 个网站的热搜、实时快讯和金价整理成同一种格式，随取随用。
 
-Core 不包含 MCP Server，也不直接连接 PostgreSQL。
+[在线体验](https://whatshot.top) · [三分钟上手](#三分钟上手) · [支持哪些网站](#支持哪些网站) · [常见问题](#常见问题) · [开发者文档](#开发者文档)
 
-## 运行进程
+![License](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.12%2B-blue) ![Sources](https://img.shields.io/badge/sources-400%2B-orange)
 
-| 端口 | 命令 | 职责 |
+</div>
+
+## 为什么做这个
+
+热点散落在几十个 App 和网站里：微博看热搜，知乎看讨论，B 站看视频，财联社盯快讯，
+金店官网查金价……每个都要单独打开，格式也各不相同。
+
+WhatsHot 把它们收拢到一处。每个来源都会变成结构相同的列表，包含标题、链接、热度和时间。
+你可以在终端里直接看，用 RSS 阅读器订阅，交给 AI 助手分析，也可以接进自己的产品。
+
+> 只想看看热榜，不想安装？直接打开 **[whatshot.top](https://whatshot.top)**，网页版基于本项目构建。
+
+## 你可以用它来
+
+| | 场景 | 怎么做 |
 | --- | --- | --- |
-| `6688` | `uv run python -m whats_hot_api` | Core API、JSON、RSS、响应缓存 |
-| `6690` | `uv run whatshot daemon` | Scheduler、DuckDB、`/api/v1` Backend、内部 Control API |
+| 📰 | 每天花一分钟扫一遍全网热点 | 终端里输入 `whatshot weibo` |
+| 📡 | 用 RSS 阅读器订阅任意榜单 | 榜单地址后加 `?rss=true` |
+| 🤖 | 让 AI 帮你查热点、追事件、看趋势 | 配合 [whatshot-mcp](https://github.com/alisen39/whatshot-mcp) 接入 AI 助手 |
+| 💰 | 对比各家金店今天的金价 | 周大福、周生生、老凤祥、六福等金价榜 |
+| 🧩 | 做热点看板、群聊机器人、每日简报 | 调用 JSON 接口 |
+| 🕰️ | 回看某个话题何时上榜、热了多久 | 开启定时采集，保存历史 |
 
-两个进程互不依赖。只消费聚合 API 时启动 `6688`；使用定时采集、历史数据或
-独立 MCP 的本地 Backend 时启动 `6690`。
+## 三分钟上手
 
-## 安装与启动
-
-要求 Python 3.12+ 和 [uv](https://docs.astral.sh/uv/)。
-
-启动 Core API：
+**1. 安装 [uv](https://docs.astral.sh/uv/)**（Python 包管理工具，会自动准备 Python 3.12+）
 
 ```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows（PowerShell）
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**2. 下载项目**
+
+```bash
+git clone https://github.com/alisen39/whatshot.git
+cd whatshot
 uv sync
+```
+
+**3. 看一眼微博热搜**
+
+```bash
+uv run whatshot weibo --limit 5 -f plain
+```
+
+输出类似（示例）：
+
+```text
+1. 某地出现罕见天象
+2. 新款手机今日开售
+3. 周末全国大范围降温
+4. 某综艺官宣新嘉宾
+5. 高校食堂推出新菜品
+```
+
+换成别的网站，只需要换一个名字：
+
+```bash
+uv run whatshot zhihu -f plain        # 知乎热榜
+uv run whatshot bilibili -f plain     # B 站全站排行
+uv run whatshot cls -f plain          # 财联社电报
+uv run whatshot --help                # 查看全部网站
+```
+
+想要别的格式，把 `-f plain` 换成 `json`、`markdown` 或 `csv`。
+
+**4. 启动接口服务（可选）**
+
+```bash
 uv run python -m whats_hot_api
 ```
 
-启动 daemon：
-
-```bash
-cp config.example.toml config.toml
-uv sync --extra daemon
-uv run whatshot config validate -f json
-uv run whatshot daemon
-```
-
-健康检查：
-
-```bash
-curl http://127.0.0.1:6688/all
-curl http://127.0.0.1:6690/internal/v1/health
-curl http://127.0.0.1:6690/api/v1/capabilities
-```
-
-## Core HTTP API
-
-每个路由提供元信息端点和数据端点：
-
-```text
-GET /weibo
-GET /weibo/hot
-GET /bilibili/1
-GET /acfun/1?range=WEEK
-GET /all
-GET /categories
-```
-
-通用查询参数：
-
-```text
-?rss=true          输出 RSS 2.0
-?cache=false       跳过旧缓存并刷新
-?cache=only        只读缓存，未命中返回 404
-?limit=10          限制条目数
-```
-
-响应示例：
-
-```json
-{
-  "code": 200,
-  "name": "weibo",
-  "title": "微博",
-  "type": "热搜榜",
-  "total": 50,
-  "updateTime": "2026-08-16T12:00:00Z",
-  "fromCache": true,
-  "data": [
-    {
-      "id": "1",
-      "title": "热搜标题",
-      "hot": 999999,
-      "url": "https://example.com"
-    }
-  ]
-}
-```
-
-金价路由使用原生报价口径；币种和单位属于每条报价，Core 不做汇率或重量换算：
-
-```text
-GET /lukfook/mainland
-GET /lukfook/hong-kong
-GET /chow-taifook-hk/hot
-GET /beijing-rtj/hot
-```
-
-```json
-{
-  "id": "gold-jewellery",
-  "title": "999.9饰金",
-  "metal": "gold",
-  "quotes": [
-    {
-      "quoteType": "retail_sell",
-      "label": "销售价",
-      "price": 1319.5,
-      "currency": "HKD",
-      "unit": "gram",
-      "sourceQuoteTime": "2026-08-10T18:28:12+08:00",
-      "sourceQuoteTimeTrusted": true
-    }
-  ]
-}
-```
-
-`metal` 可区分 `gold` / `silver` / `platinum` / `palladium`。`sellPrice` /
-`recyclePrice` 暂时保留给旧客户端，但只会映射人民币/克报价。历史金价
-序列按 `board + item + quoteType + currency + unit` 分开保存。
-
-## 缓存配置
-
-Core API 从 `.env` 读取缓存和上游请求配置：
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `PORT` | `6688` | Core API 端口 |
-| `HOTLIST_CACHE_TTL` | `1800` | 热榜缓存秒数 |
-| `NEWSFLASH_CACHE_TTL` | `300` | 快讯缓存秒数 |
-| `REQUEST_TIMEOUT` | `6000` | 上游超时毫秒数 |
-| `REDIS_HOST` | `127.0.0.1` | 留空时只用内存缓存 |
-| `SOURCE_RSSHUB_BASE_URLS` | 空 | RSSHub 实例列表 |
-| `ROUTE_PROXY` | 空 | 按域名关键词匹配的代理 JSON |
-
-修改 `.env` 后重启 `6688`。
-
-## daemon 配置
-
-daemon 从本地 `config.toml` 读取设置。该文件由 `config.example.toml` 复制，已被
-Git 忽略。
-
-```toml
-[daemon]
-bind = "127.0.0.1"
-port = 6690
-state_path = "data/state"
+然后在浏览器里打开：
 
-[storage]
-enabled = true
-path = "data/whatshot.duckdb"
-retention_days = 180
-query_timeout_seconds = 5
-cursor_ttl_seconds = 86400
-checkpoint_on_shutdown = true
-
-[scheduler]
-enabled = true
-max_fetch_concurrency = 4
-writer_queue_size = 32
+| 地址 | 内容 |
+| --- | --- |
+| <http://127.0.0.1:6688/weibo/hot> | 微博热搜（JSON） |
+| <http://127.0.0.1:6688/weibo/hot?rss=true> | 同一个榜单的 RSS 订阅地址 |
+| <http://127.0.0.1:6688/weibo> | 微博有哪些榜单可选 |
+| <http://127.0.0.1:6688/all> | 全部网站列表 |
 
-[backend_api]
-max_result_items = 200
-default_history_days = 7
-max_history_days = 365
-```
-
-默认不采集任何来源。增加采集任务：
-
-```toml
-[[scheduler.jobs]]
-id = "weibo-hot"
-site = "weibo"
-type = "hot"
-interval = "10m"
-limit = 50
-enabled = true
-run_on_start = true
-```
-
-`6690` 是 DuckDB 的唯一 owner。不得让其他进程直接打开同一数据库写入，也不要把
-内部 Control API 直接暴露到公网。
-
-## Backend Contract v1
+把 RSS 地址填进 Inoreader、Feedly、NetNewsWire、Folo 等阅读器，就能像订阅公众号一样订阅热榜。
+在服务器上部署时，把 `127.0.0.1` 换成服务器地址即可。
 
-daemon 为独立 `whatshot-mcp` 提供：
-
-```text
-GET  /api/v1/capabilities
-GET  /api/v1/sources
-GET  /api/v1/sources/{site}
-POST /api/v1/current
-POST /api/v1/current/batch
-GET  /api/v1/history
-GET  /api/v1/history/search
-GET  /api/v1/history/trends
-GET  /api/v1/coverage
-```
-
-`storage.enabled=false` 时只声明 `core-read`；启用历史存储后同时声明
-`history-read`。Backend Contract 不提供 Scheduler trigger、数据库路径或写操作。
-
-独立 MCP 的默认配置：
-
-```toml
-[backend]
-url = "http://127.0.0.1:6690/api/v1"
-```
-
-AI 客户端连接 MCP 服务的 `http://127.0.0.1:6691/mcp`，不能把 `6690` 当作 MCP
-endpoint。
-
-## CLI
-
-实时读取不需要启动任何服务：
-
-```bash
-uv run whatshot list -f json
-uv run whatshot weibo hot -f json
-uv run whatshot weibo hot --cache only
-```
-
-历史和 Scheduler 子命令通过正在运行的 daemon Control API 调用：
-
-```bash
-uv run whatshot history query --site weibo --board hot
-uv run whatshot history search 关键词 --site weibo
-uv run whatshot scheduler status -f json
-uv run whatshot scheduler trigger weibo-hot -f json
-```
-
-CLI 不直接打开 DuckDB。
-
-## 作为核心库嵌入
-
-扩展项目通过 App Factory 注入配置、路由和生命周期钩子：
-
-```python
-from whats_hot_api.app import create_app
-from whats_hot_api.config import Settings
-
-
-class ExtSettings(Settings):
-    MY_CUSTOM_KEY: str = ""
-
-
-app = create_app(
-    settings=ExtSettings(),
-    extra_routers=[my_router],
-    extra_startup=[my_startup],
-    extra_shutdown=[my_shutdown],
-    extra_route_packages=["my_ext.routes"],
-    title="My Extended API",
-)
-```
-
-## 新增路由
-
-在 `whats_hot_api/routes/<category>/` 下增加模块，并导出：
-
-```python
-ROUTE_NAME = "example"
-ROUTE_META = {
-    "name": "example",
-    "title": "Example",
-    "description": "Example source",
-    "link": "https://example.com",
-    "params": None,
-}
-
-
-async def handle_route(request, no_cache):
-    ...
-```
-
-分类子包的 `__init__.py` 导出 `CATEGORY` 和 `CATEGORY_LABEL`。路由由 registry
-递归发现，不维护手工路由表。
-
-### 快讯回溯声明
-
-快讯 route 除实时采集外，必须声明回溯方式（契约见
-`whats_hot_api/backfill.py`）。`BACKFILL` 以 path type 为键，`"*"` 覆盖其余类型；
-不支持也要显式声明原因：
-
-```python
-from whats_hot_api.backfill import BackfillSpec, BackfillStrategy, unsupported
-
-BACKFILL: dict[str, BackfillSpec] = {
-    "*": BackfillSpec(
-        strategy=BackfillStrategy.TIME_CURSOR,
-        notes="last_time=上一页最老时间（含边界）",
-        supports_before=True,
-        verified_at="2026-10-14",
-    ),
-    "hot": unsupported("推荐榜成员无法按历史还原"),
-}
-
-
-async def backfill_page(path_type, params, cursor, *, before):
-    ...  # 返回 BackfillPage(data, next_cursor, raw_digest)
-```
-
-- 策略：`time_cursor`、`opaque_cursor`、`page_number`、`date_query` 需实现
-  `backfill_page`；`snapshot` 复用 `handle_route` 的当前页；`unsupported` 不实现。
-- 实时与回溯共用同一解析函数；时间游标包含边界，同秒条目由调用方去重。
-- 回溯请求经 `FetchService.backfill_page` 执行，游标不进入 board 身份，也不读写响应缓存。
-- 声明完整性由 `tests/test_backfill_contract.py` 强制；翻页实现需补固定数据测试
-  （游标推进、边界同秒、空页/重复页停止）。
-
-## 测试
-
-```bash
-uv run pytest
-uv run pytest tests/test_backend_contract_api.py -v
-uv run pytest tests/test_daemon.py -v
-```
-
-变更 Backend Contract 时，还必须使用相邻 `whatshot-mcp/contracts` 制品运行
-Contract 测试。
-
-## 安全边界
-
-- Core 数据路由只读。
-- daemon 默认只绑定 loopback。
-- Backend Contract 不接受任意 URL、SQL、文件路径或 Token 参数。
-- DuckDB 单写者由 owner lock 保证。
-- Redis 不可用时自动降级，不影响基本 API。
+## 支持哪些网站
+
+目前收录 400+ 个网站、2000+ 个榜单，分为热榜、快讯、金价三类。下面只列一部分：
+
+| 类别 | 代表来源 |
+| --- | --- |
+| 综合热搜 | 微博、知乎、百度、抖音、快手、今日头条、百度贴吧、豆瓣、虎扑、Google Trends |
+| 视频与音乐 | 哔哩哔哩、AcFun、腾讯视频、爱奇艺、猫眼电影、网易云音乐、QQ 音乐、YouTube、TikTok、Spotify |
+| 新闻 | 澎湃新闻、新华网、人民网、央视网、腾讯新闻、网易新闻、联合早报、BBC、Reuters、纽约时报 |
+| 科技与开发者 | 36氪、虎嗅、少数派、IT之家、V2EX、稀土掘金、GitHub、Hacker News、Product Hunt、Stack Overflow |
+| AI 与科研 | OpenAI、Anthropic、Google DeepMind、Hugging Face、arXiv、Nature、Science |
+| 财经快讯 | 财联社、华尔街见闻、金十数据、东方财富、同花顺、第一财经、雪球 |
+| 游戏与 ACG | Steam、NGA、米游社、原神、崩坏：星穹铁道、英雄联盟、游研社 |
+| 生活与阅读 | 什么值得买、微信读书、豆瓣读书、喜马拉雅、懂球帝、中央气象台、历史上的今天 |
+| 金价 | 周大福、周生生、老凤祥、六福珠宝、中国黄金、菜百首饰、周六福 |
+
+完整清单：运行 `uv run whatshot --help`，或启动服务后访问 `/all`。
+
+## 更多用法
+
+### 接入 AI 助手
+
+[whatshot-mcp](https://github.com/alisen39/whatshot-mcp) 是配套的 MCP 服务。接入 Claude、
+Cursor 等支持 MCP 的 AI 工具后，可以直接问它“今天各平台都在讨论什么”“这件事最早在哪儿上的榜”。
+它既可以连接你自己运行的 WhatsHot，也可以连接 WhatsHot 托管服务。
+
+### 定时采集与历史数据
+
+默认只返回“此刻”的榜单。如果想知道某个话题什么时候上榜、热了多久，可以启动后台采集服务，
+按你设定的频率保存到本地数据库，之后再按关键词搜索、看趋势。配置方法见
+[定时采集与历史数据](docs/daemon.md)。
+
+## 常见问题
+
+**需要注册账号或申请 API Key 吗？**
+不需要。数据来自各网站公开的页面和接口，直接运行即可。
+
+**一定要装 Redis 或数据库吗？**
+不需要。没有 Redis 时自动只用内存缓存；只有开启历史采集时才会用到本地 DuckDB 文件，无需单独安装。
+
+**数据多久更新一次？**
+每次请求时实时抓取，并缓存一段时间避免频繁访问：热榜默认 30 分钟，快讯默认 5 分钟。
+需要最新数据时，在地址后加 `?cache=false`，或在命令行加 `--cache refresh`。
+
+**海外网站抓不到？**
+GitHub、纽约时报等部分海外来源在国内网络需要代理，可以在 `.env` 里用 `ROUTE_PROXY` 为指定域名配置代理，
+见 [HTTP API 与配置](docs/api.md#配置)。
+
+**某个网站突然不能用了？**
+网站改版很常见。欢迎提交 Issue 告诉我们，或者直接提 PR 修复。
+
+**数据可以商用吗？**
+代码使用 MIT 许可，可以自由使用。抓取到的内容版权归各来源网站所有，请遵守对方的服务条款，
+并合理控制请求频率。
+
+## 开发者文档
+
+- [HTTP API 与配置](docs/api.md)：接口格式、查询参数、金价字段、缓存与代理配置、命令行
+- [定时采集与历史数据](docs/daemon.md)：daemon、DuckDB 历史库、Backend Contract、MCP 对接
+- [开发与扩展](docs/development.md)：新增网站、快讯回溯声明、作为库嵌入、测试
+
+想新增一个网站？通常只需要在 `whats_hot_api/routes/` 下加一个文件，见
+[开发与扩展](docs/development.md#新增路由)。
 
 ## License
 
-MIT。第三方来源和授权说明见 `THIRD_PARTY_NOTICES.md`。
+[MIT](https://opensource.org/license/mit)。第三方代码授权说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
