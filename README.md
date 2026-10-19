@@ -11,6 +11,10 @@
 
 ![License](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.12%2B-blue) ![Sources](https://img.shields.io/badge/sources-400%2B-orange)
 
+<a href="https://whatshot.top/tech"><img src="docs/images/whatshot-web.png" alt="WhatsHot 网页版科技热榜：V2EX、微博、哔哩哔哩、新浪等平台的榜单并排展示" width="880"></a>
+
+<sub>基于本项目构建的网页版 <a href="https://whatshot.top">whatshot.top</a></sub>
+
 </div>
 
 ## 为什么做这个
