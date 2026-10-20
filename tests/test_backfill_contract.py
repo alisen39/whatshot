@@ -219,7 +219,7 @@ async def test_bypass_cache_neither_reads_nor_writes(monkeypatch) -> None:
         async def get(self, url, headers=None, params=None):
             return _Response()
 
-    async def fake_client(url, proxy, store_cookies=True):
+    async def fake_client(url, proxy, store_cookies=True, http2=True):
         return _Client()
 
     monkeypatch.setattr(http_client, "cache", _Cache())

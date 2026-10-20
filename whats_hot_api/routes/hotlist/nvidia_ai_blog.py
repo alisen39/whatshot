@@ -7,8 +7,9 @@ from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
 
 ROUTE_NAME = 'nvidia-ai-blog'
-SOURCE_LINK = 'https://blogs.nvidia.com/ai/'
-FEED_URL = 'https://news.google.com/rss/search?q=site%3Ablogs.nvidia.com%2Fai%20OR%20site%3Ablogs.nvidia.com%2Fblog%2Ftag%2Fai&hl=en-US&gl=US&ceid=US%3Aen'
+SOURCE_LINK = 'https://blogs.nvidia.com/blog/category/generative-ai/'
+# Official feed (the Google News site: proxy returned third-party coverage).
+FEED_URL = 'https://blogs.nvidia.com/blog/category/generative-ai/feed/'
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": 'NVIDIA AI Blog',

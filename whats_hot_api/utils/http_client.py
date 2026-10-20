@@ -57,7 +57,7 @@ def force_cache_only():
 # Keep each upstream origin in its own bounded pool. A single shared pool lets a
 # slow or broken origin consume every connection and turn otherwise healthy
 # sources into PoolTimeout failures.
-ClientKey = tuple[str, str, bool]
+ClientKey = tuple[str, str, bool, bool]
 _clients: dict[ClientKey, httpx.AsyncClient] = {}
 _clients_lock = asyncio.Lock()
 
@@ -105,8 +105,8 @@ def _origin_for_url(url: str) -> str:
     return f"{scheme}://{hostname}:{port}"
 
 
-def _client_key(url: str, proxy: str | None, store_cookies: bool = True) -> ClientKey:
-    return proxy or "", _origin_for_url(url), store_cookies
+def _client_key(url: str, proxy: str | None, store_cookies: bool = True, http2: bool = True) -> ClientKey:
+    return proxy or "", _origin_for_url(url), store_cookies, http2
 
 
 class _NoStoreCookiePolicy(http.cookiejar.DefaultCookiePolicy):
@@ -173,8 +173,9 @@ async def _get_client(
     url: str,
     proxy: str | None = None,
     store_cookies: bool = True,
+    http2: bool = True,
 ) -> httpx.AsyncClient:
-    key = _client_key(url, proxy, store_cookies)
+    key = _client_key(url, proxy, store_cookies, http2)
     existing = _clients.get(key)
     if existing is not None and not existing.is_closed:
         return existing
@@ -184,7 +185,8 @@ async def _get_client(
             kwargs: dict[str, Any] = {
                 "timeout": httpx.Timeout(config.REQUEST_TIMEOUT / 1000),
                 "follow_redirects": True,
-                "http2": True,
+                # Some WAFs block every HTTP/2 client fingerprint (x.ai, 2026-10-19).
+                "http2": http2,
                 "limits": httpx.Limits(
                     max_connections=_MAX_CONNECTIONS_PER_ORIGIN,
                     max_keepalive_connections=(
@@ -222,10 +224,11 @@ async def _discard_client(
     proxy: str | None,
     client: httpx.AsyncClient,
     store_cookies: bool = True,
+    http2: bool = True,
 ) -> None:
     """Remove and close a poisoned origin pool without touching other origins."""
 
-    key = _client_key(url, proxy, store_cookies)
+    key = _client_key(url, proxy, store_cookies, http2)
     async with _clients_lock:
         if _clients.get(key) is not client:
             return
@@ -251,6 +254,7 @@ async def get(
     proxy: str | None = None,
     cache_key: str | None = None,
     store_cookies: bool = True,
+    http2: bool = True,
 ) -> RequestResult:
     logger.info(f"🌐 [GET] {url}")
     key = _build_cache_key(url, params, cache_key)
@@ -280,7 +284,7 @@ async def get(
                 )
 
         resolved_proxy = proxy or _get_proxy_for_url(url)
-        client = await _get_client(url, resolved_proxy, store_cookies)
+        client = await _get_client(url, resolved_proxy, store_cookies, http2)
         response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
 
@@ -305,14 +309,14 @@ async def get(
         return RequestResult(from_cache=False, update_time=update_time, data=data)
     except asyncio.CancelledError:
         if client is not None:
-            await _discard_client(url, resolved_proxy, client, store_cookies)
+            await _discard_client(url, resolved_proxy, client, store_cookies, http2)
         logger.warning(
             f"⚠️ [HTTP] Cancelled request; discarded pool for {_origin_for_url(url)}"
         )
         raise
     except httpx.PoolTimeout:
         if client is not None:
-            await _discard_client(url, resolved_proxy, client, store_cookies)
+            await _discard_client(url, resolved_proxy, client, store_cookies, http2)
         logger.error(
             f"❌ [HTTP] Pool timeout; discarded pool for {_origin_for_url(url)}"
         )

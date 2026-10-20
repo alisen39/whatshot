@@ -7,8 +7,9 @@ from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
 
 ROUTE_NAME = 'midjourney-updates'
-SOURCE_LINK = 'https://www.midjourney.com/updates'
-FEED_URL = 'https://news.google.com/rss/search?q=site%3Amidjourney.com%2Fupdates%20Midjourney&hl=en-US&gl=US&ceid=US%3Aen'
+SOURCE_LINK = 'https://updates.midjourney.com/'
+# Official feed (the Google News site: proxy returned third-party coverage).
+FEED_URL = 'https://updates.midjourney.com/rss/'
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": 'Midjourney Updates',
