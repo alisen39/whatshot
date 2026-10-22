@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections import OrderedDict
 from dataclasses import dataclass
 from time import monotonic
@@ -104,6 +105,12 @@ class DualCache:
                 raw = await self._redis.get(key)
                 if raw:
                     obj = orjson.loads(raw)
+                    if "dataBase64" in obj:
+                        # Raw response bodies (response_type="arraybuffer").
+                        return CacheData(
+                            update_time=obj["updateTime"],
+                            data=base64.b64decode(obj["dataBase64"]),
+                        )
                     return CacheData(update_time=obj["updateTime"], data=obj["data"])
             except Exception as e:
                 logger.error(f"📦 [Redis] get error: {e}")
@@ -114,7 +121,14 @@ class DualCache:
         await self._ensure_redis()
         if self._redis_available and self._redis:
             try:
-                raw = orjson.dumps({"updateTime": value.update_time, "data": value.data})
+                if isinstance(value.data, bytes):
+                    payload = {
+                        "updateTime": value.update_time,
+                        "dataBase64": base64.b64encode(value.data).decode("ascii"),
+                    }
+                else:
+                    payload = {"updateTime": value.update_time, "data": value.data}
+                raw = orjson.dumps(payload)
                 if ttl_seconds > 0:
                     await self._redis.set(key, raw, ex=ttl_seconds)
                 else:
