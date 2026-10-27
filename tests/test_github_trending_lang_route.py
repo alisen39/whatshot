@@ -132,6 +132,23 @@ async def test_empty_trending_returns_zero_items_with_message(monkeypatch, _no_c
     assert result.total == 0
     assert result.data == []
     assert result.message == "GitHub 当前没有 Common Lisp 的 Trending 仓库"
+    assert github_trending_lang.ROUTE_META["allowEmpty"] is True
+
+
+@pytest.mark.asyncio
+async def test_missing_repositories_without_empty_marker_is_an_error(
+    monkeypatch, _no_cache, _no_sleep
+):
+    async def fake_get(**kwargs):
+        return RequestResult(
+            False,
+            "2026-10-27T00:00:00+00:00",
+            _trending_page("Trending JSON repositories on GitHub today"),
+        )
+
+    monkeypatch.setattr(github_trending_lang, "get", fake_get)
+    with pytest.raises(RuntimeError, match="no repositories parsed"):
+        await github_trending_lang.handle_route(_request("json"), no_cache=True)
 
 
 @pytest.mark.asyncio

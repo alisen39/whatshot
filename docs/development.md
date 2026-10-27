@@ -22,6 +22,14 @@ async def handle_route(request, no_cache):
 分类子包的 `__init__.py` 导出 `CATEGORY` 和 `CATEGORY_LABEL`。路由由 registry
 递归发现，不维护手工路由表。
 
+### 合法空榜
+
+热榜只有在上游明确表示当前无条目、且路由已验证页面/响应属于所请求榜单时，才可在
+`ROUTE_META` 声明 `"allowEmpty": True`。该声明供采集方区分合法空榜和采集失败，
+不改变响应结构；当前由 `github-trending-lang` 使用。返回 `total=0, data=[]` 仍须有
+严格的上游空态依据，结构变化、错误页面或解析不到条目不能当作空榜。测试同时覆盖
+合法空态和缺少空态标识的异常。
+
 ### 快讯回溯声明
 
 快讯 route 除实时采集外，必须声明回溯方式（契约见

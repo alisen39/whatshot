@@ -126,6 +126,9 @@ ROUTE_META: dict = {
     "title": "GitHub",
     "description": "GitHub 按编程语言的 Trending 仓库(日榜 / 周榜 / 月榜)。",
     "link": "https://github.com/trending",
+    # Only emit an empty result after checking the language/range title and the
+    # explicit upstream no-trending marker. Consumers may count it as a success.
+    "allowEmpty": True,
     "params": {
         "type": {
             "name": "编程语言",
