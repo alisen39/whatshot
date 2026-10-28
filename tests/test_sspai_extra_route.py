@@ -86,7 +86,7 @@ async def test_sspai_latest_maps_fields_and_adjusts_leading_important(monkeypatc
     assert first.url == "https://sspai.com/post/115167"
     assert first.mobileUrl == first.url
     assert first.hot == 9
-    assert first.cover == "https://cdnfile.sspai.com/2026/9/30/article/abc.jpeg"
+    assert first.cover == "https://rssfile.sspai.com/2026/9/30/article/abc.jpeg"
     assert first.author == "少数派编辑部"
     assert first.desc == "摘要文本"
     assert first.timestamp == 1790751500000  # 字符串秒级 → 毫秒

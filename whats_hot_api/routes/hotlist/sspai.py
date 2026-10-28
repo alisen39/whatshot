@@ -5,6 +5,7 @@ from starlette.requests import Request
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
+from whats_hot_api.utils.sspai import sspai_cover_url
 
 ROUTE_NAME = "sspai"
 
@@ -31,7 +32,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
             id=v["id"],
             title=v["title"],
             desc=v.get("summary"),
-            cover=v.get("banner"),
+            cover=sspai_cover_url(v.get("banner")),
             author=v.get("author", {}).get("nickname"),
             timestamp=get_time(v.get("released_time")),
             hot=v.get("like_count"),

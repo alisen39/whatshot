@@ -34,6 +34,7 @@ from starlette.requests import Request
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
+from whats_hot_api.utils.sspai import sspai_cover_url
 
 ROUTE_NAME = "sspai-extra"
 
@@ -62,7 +63,6 @@ _JSON_ACCEPT = "application/json, text/plain, */*"
 # ---------------------------------------------------------------- 少数派
 
 _SSPAI_API = "https://sspai.com/api/v1"
-_SSPAI_CDN = "https://cdnfile.sspai.com/"  # 页面脚本 main.js 的 cdn.images
 # 子榜 -> (接口路径, 固定 query, 是否带 created_at=当前秒[页面用 window.GLOBAL_TIMESTAMP], 列表名)。
 # limit 与前端页面首屏一致：tag 12、Matrix 20、一派 10、付费栏目 5、首页 10
 _SSPAI_BOARDS: dict[str, tuple[str, dict[str, str], bool, str]] = {
@@ -86,12 +86,6 @@ def _plain(fragment: Any, limit: int | None = None) -> str:
     text = BeautifulSoup(str(fragment or ""), "lxml").get_text(" ", strip=True)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:limit] if limit else text
-
-
-def _sspai_cover(path: Any) -> str | None:
-    if not isinstance(path, str) or not path:
-        return None
-    return path if path.startswith("http") else _SSPAI_CDN + path.lstrip("/")
 
 
 def _corner_badge(row: dict[str, Any]) -> list[dict]:
@@ -131,7 +125,7 @@ def _sspai_article(row: dict[str, Any]) -> ListItem | None:
         url=url,
         mobileUrl=url,
         hot=row.get("like_count"),
-        cover=_sspai_cover(row.get("banner")),
+        cover=sspai_cover_url(row.get("banner")),
         author=author.get("nickname"),
         desc=_plain(row.get("summary"), 500) or None,
         timestamp=get_time(row.get("released_time")),
@@ -150,7 +144,7 @@ def _sspai_bullet(row: dict[str, Any]) -> ListItem:
         url=url,
         mobileUrl=url,
         hot=row.get("participations_count"),  # 页面显示「N 位少数派已参与」
-        cover=_sspai_cover(row.get("banner")),
+        cover=sspai_cover_url(row.get("banner")),
         author=authors[0].get("nickname") if authors else None,
         desc=_plain(row.get("body"), 500) or None,
         timestamp=get_time(row.get("released_at")),  # 列表按 released_at 倒序
@@ -165,7 +159,7 @@ def _sspai_series(row: dict[str, Any]) -> ListItem:
         title=_plain(row.get("title")),
         url=url,
         mobileUrl=url,
-        cover=_sspai_cover(row.get("banner")),
+        cover=sspai_cover_url(row.get("banner")),
         author=author.get("nickname"),
         desc=_plain(row.get("description"), 500) or None,
         timestamp=get_time(row.get("released_at")),  # 上架时间
