@@ -33,6 +33,7 @@ from typing import Any, Literal
 from pydantic import (
     BaseModel,
     Field,
+    PrivateAttr,
     ValidationError,
     field_serializer,
     field_validator,
@@ -442,6 +443,10 @@ class RouterData(BaseModel):
     updateTime: str  # 必填：本次数据刷新时间，ISO 8601 字符串（注意：非毫秒）
     data: list[DataItem]  # 必填：条目列表
     message: str | None = None  # 选填：附加信息
+
+    # 条目 id → 全文，仅供进程内分析（Cloud AI 流程）；私有属性不进入序列化、schema 与缓存。
+    # model_copy 会保留，model_dump/model_validate 往返则丢失。
+    _analysis_texts: dict[str, str] = PrivateAttr(default_factory=dict)
 
 
 class ApiResponse(BaseModel):
