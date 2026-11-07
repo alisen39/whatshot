@@ -4,8 +4,8 @@ import pytest
 from starlette.requests import Request
 
 from whats_hot_api.models import RouterData
-from whats_hot_api.routes.newsflash import wechat_qbit
-from whats_hot_api.utils import wechat_feed
+from whats_hot_api.routes.newsflash import wechat_qbit, zhidx
+from whats_hot_api.utils import article_feed
 from whats_hot_api.utils.http_client import RequestResult
 
 LONG_TAIL = "尾段提到 GPT-6 Astra 正式发布。"
@@ -47,7 +47,7 @@ async def test_route_keeps_public_summary_and_private_full_text(monkeypatch):
         captured.update(kwargs)
         return RequestResult(True, "2026-11-07T01:00:00+00:00", RSS_SAMPLE)
 
-    monkeypatch.setattr(wechat_feed, "get", fake_get)
+    monkeypatch.setattr(article_feed, "get", fake_get)
     result = await wechat_qbit.handle_route(_request())
 
     assert captured == {
@@ -74,8 +74,8 @@ async def test_route_keeps_public_summary_and_private_full_text(monkeypatch):
 
 
 def test_full_text_never_leaves_the_process():
-    items, texts = wechat_feed.parse_feed(RSS_SAMPLE, "量子位")
-    data = RouterData(kind="newsflash", **wechat_feed.route_meta("wechat-qbit"), type="公众号文章",
+    items, texts = article_feed.parse_feed(RSS_SAMPLE, "量子位")
+    data = RouterData(kind="newsflash", **article_feed.route_meta("wechat-qbit"), type="公众号文章",
                       total=len(items), fromCache=False, updateTime="2026-11-07T01:00:00+00:00", data=items)
     data._analysis_texts = texts
 
@@ -87,11 +87,44 @@ def test_full_text_never_leaves_the_process():
 
 def test_article_id_ignores_share_parameters():
     base = "https://mp.weixin.qq.com/s?__biz=MzIz&mid=1&idx=1&sn=a"
-    assert wechat_feed.article_id(base) == wechat_feed.article_id(base + "&scene=21&chksm=b#rd")
-    assert wechat_feed.article_id(base) != wechat_feed.article_id(base.replace("idx=1", "idx=2"))
-    assert wechat_feed.article_id("https://mp.weixin.qq.com/s?__biz=MzIz&appmsgid=1&idx=1") == "wechat:MzIz:1:1"
+    assert article_feed.article_id(base) == article_feed.article_id(base + "&scene=21&chksm=b#rd")
+    assert article_feed.article_id(base) != article_feed.article_id(base.replace("idx=1", "idx=2"))
+    assert article_feed.article_id("https://mp.weixin.qq.com/s?__biz=MzIz&appmsgid=1&idx=1") == "wechat:MzIz:1:1"
+    ifanr = "https://www.ifanr.com/1688251?utm_source=rss&utm_medium=rss&utm_campaign="
+    assert article_feed.article_id(ifanr) == "https://www.ifanr.com/1688251"
+    assert article_feed.article_id("https://example.com/?p=1&utm_source=rss") == "https://example.com/?p=1"
 
 
 def test_non_rss_response_fails():
     with pytest.raises(RuntimeError, match="not a non-empty RSS feed"):
-        wechat_feed.parse_feed("<html><body>403 Forbidden</body></html>", "量子位")
+        article_feed.parse_feed("<html><body>403 Forbidden</body></html>", "量子位")
+
+
+SITE_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>智东西</title>
+  <item>
+    <title>前OpenAI CTO推新模型</title>
+    <link>https://zhidx.com/p/123456.html</link>
+    <pubDate>Fri, 06 Nov 2026 20:24:00 +0800</pubDate>
+    <description><![CDATA[<p>导语。</p><p>正文第二段，模型细节。</p>]]></description>
+  </item>
+</channel></rss>
+"""
+
+
+@pytest.mark.asyncio
+async def test_media_site_feed_reads_its_own_rss(monkeypatch):
+    captured = {}
+
+    async def fake_get(**kwargs):
+        captured.update(kwargs)
+        return RequestResult(False, "2026-11-07T03:00:00+00:00", SITE_RSS)
+
+    monkeypatch.setattr(article_feed, "get", fake_get)
+    result = await zhidx.handle_route(_request(), no_cache=True)
+
+    assert captured["url"] == "https://zhidx.com/rss" and captured["no_cache"] is True
+    assert (result.name, result.title, result.type) == ("zhidx", "智东西 · 最新文章", "最新文章")
+    [article] = result.data
+    assert article.id == "https://zhidx.com/p/123456.html" and article.source == "智东西"
+    assert result._analysis_texts[article.id] == "导语。\n正文第二段，模型细节。"
