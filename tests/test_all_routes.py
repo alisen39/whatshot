@@ -128,9 +128,8 @@ ROUTE_CASES: list[tuple[str, str, str | None, str]] = [
     ("/sina-news", "2", None, "新浪新闻-国际"),
     ("/sina-news", "5", None, "新浪新闻-军事"),
     # 36kr
-    ("/36kr", "hot", None, "36氪-热门"),
-    ("/36kr", "video", None, "36氪-视频"),
-    ("/36kr", "comment", None, "36氪-评论"),
+    ("/36kr", "hot", None, "36氪-人气"),
+    ("/36kr", "zonghe", None, "36氪-综合"),
     ("/36kr", "collect", None, "36氪-收藏"),
     # github
     ("/github", "daily", None, "GitHub-日榜"),
