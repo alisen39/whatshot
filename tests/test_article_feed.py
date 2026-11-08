@@ -57,7 +57,7 @@ async def test_route_keeps_public_summary_and_private_full_text(monkeypatch):
         "response_type": "text",
         "headers": {"User-Agent": "WhatsHot/1.0"},
     }
-    assert (result.kind, result.name, result.title, result.total) == ("newsflash", "wechat-qbit", "量子位 · 公众号", 2)
+    assert (result.kind, result.name, result.title, result.type, result.total) == ("newsflash", "wechat-qbit", "量子位", "最新文章", 2)
     assert result.fromCache is True  # A cached feed is re-parsed, so the full text is still there.
 
     article = result.data[0]
@@ -75,7 +75,7 @@ async def test_route_keeps_public_summary_and_private_full_text(monkeypatch):
 
 def test_full_text_never_leaves_the_process():
     items, texts = article_feed.parse_feed(RSS_SAMPLE, "量子位")
-    data = RouterData(kind="newsflash", **article_feed.route_meta("wechat-qbit"), type="公众号文章",
+    data = RouterData(kind="newsflash", **article_feed.route_meta("wechat-qbit"), type="最新文章",
                       total=len(items), fromCache=False, updateTime="2026-11-07T01:00:00+00:00", data=items)
     data._analysis_texts = texts
 
@@ -93,6 +93,26 @@ def test_article_id_ignores_share_parameters():
     ifanr = "https://www.ifanr.com/1688251?utm_source=rss&utm_medium=rss&utm_campaign="
     assert article_feed.article_id(ifanr) == "https://www.ifanr.com/1688251"
     assert article_feed.article_id("https://example.com/?p=1&utm_source=rss") == "https://example.com/?p=1"
+
+
+def test_strip_meta_drops_bylines_but_keeps_the_article():
+    wechat = "\n".join([
+        "原创 关注前沿科技 2026-11-07 12:30 北京",
+        "一个持续学习、永远在线的记忆系统",  # 副标题保留
+        "程浅 文婷 发自 凹非寺",
+        "量子位 | 公众号 QbitAI",
+        "大道不孤。",
+        "▲ 图源：官方",
+        "记者发自现场的报道不受影响。",
+        "阅读原文",
+        "跳转微信打开",
+    ])
+    assert article_feed.strip_meta(wechat) == "一个持续学习、永远在线的记忆系统\n大道不孤。\n记者发自现场的报道不受影响。"
+    assert article_feed.strip_meta("Li Yuan 2026-11-06 09:02 北京\n新智元报道\n编辑｜郑玄\n©作者 | 黎宇哲\n正文") == "正文"
+    assert article_feed.strip_meta("智东西\n编译 | 毕伟豪\n编辑｜云鹏\n智东西11月7日消息，正文。") == "智东西11月7日消息，正文。"
+    # 署名格式只认第 1 段；开头 8 段以后的版头写法不删
+    late = "\n".join(["正文"] * 8 + ["编辑｜某某", "2026-11-07 12:30 北京"])
+    assert article_feed.strip_meta(late) == late
 
 
 def test_non_rss_response_fails():
@@ -124,7 +144,7 @@ async def test_media_site_feed_reads_its_own_rss(monkeypatch):
     result = await zhidx.handle_route(_request(), no_cache=True)
 
     assert captured["url"] == "https://zhidx.com/rss" and captured["no_cache"] is True
-    assert (result.name, result.title, result.type) == ("zhidx", "智东西 · 最新文章", "最新文章")
+    assert (result.name, result.title, result.type) == ("zhidx", "智东西", "最新文章")
     [article] = result.data
     assert article.id == "https://zhidx.com/p/123456.html" and article.source == "智东西"
     assert result._analysis_texts[article.id] == "导语。\n正文第二段，模型细节。"

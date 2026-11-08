@@ -3,10 +3,12 @@
 公开条目只带 500 字摘要；正文（最多 32k 字）放在 ``RouterData._analysis_texts``，
 仅供 Cloud AI 流程使用，不进入任何序列化输出。wechat2rss 上游平均约 6 小时更新一次
 （2026-11-07 实测常落后一天）；媒体网站的 feed 实时更新。feed 都只含最近约 20 篇。
+摘要和正文都先去掉开头的署名、版头（见 ``strip_meta``）。
 """
 
 from __future__ import annotations
 
+import re
 from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -52,13 +54,27 @@ BACKFILL: dict[str, BackfillSpec] = {
 
 _BLOCK_TAGS = ["p", "section", "div", "li", "blockquote", "br", "tr", "h1", "h2", "h3", "h4", "h5", "h6"]
 
+# 署名与版头，2026-11-08 按 11 个来源各 20 篇核对过，只删这些已确认的写法。
+# 首段署名只看第 1 段，其余版头只看前 8 段；“阅读原文”和图注在全文删。
+_HEAD_PARAS = 8
+_BYLINE = re.compile(r"^(原创\s+)?.{1,30}?\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(\s+\S+)?$")  # 公众号首段“[原创] 作者 日期 时间 地点”
+_HEAD_META = [
+    re.compile(r"^.{1,20}?\s*(发自|投稿)(\s*凹非寺)?$"),  # “梦瑶 发自 凹非寺”“VISTA团队 投稿”
+    re.compile(r"^量子位\s*[|｜]\s*公众号\s*QbitAI$"),
+    re.compile(r"^(新智元|机器之心)报道$"),
+    re.compile(r"^©?(作者|编辑|编译|撰文|责编|编辑整理|单位|研究方向)\s*[|｜丨:：]"),  # “编辑｜郑玄”“作者丨高允毅”
+    re.compile(r"^智东西$"),
+    re.compile(r"^\S{1,20}（公众号：\w+）$"),  # “AI应用风向标（公众号：ZhidxcomAI）”
+]
+_ANY_META = [re.compile(r"^(阅读原文|跳转微信打开)$"), re.compile(r"^▲")]  # 公众号尾部按钮；智东西、爱范儿的图注
+
 
 def route_meta(route: str) -> dict:
     name, url = FEEDS[route]
     wechat = route in WECHAT_FEEDS
     return {
         "name": route,
-        "title": f"{name} · 公众号" if wechat else f"{name} · 最新文章",
+        "title": name,
         "description": f"{name}微信公众号文章" if wechat else f"{name}网站最新文章",
         "link": url,
     }
@@ -78,7 +94,7 @@ async def fetch_article_feed(route: str, no_cache: bool = False) -> RouterData:
     data = RouterData(
         kind="newsflash",
         **route_meta(route),
-        type="公众号文章" if route in WECHAT_FEEDS else "最新文章",
+        type="最新文章",
         total=len(items),
         fromCache=result.from_cache,
         updateTime=result.update_time,
@@ -105,7 +121,7 @@ def parse_feed(xml: str, account: str) -> tuple[list[NewsFlashItem], dict[str, s
         if not title or not url.startswith(("http://", "https://")):
             continue
         item_id = article_id(url)
-        text = article_text(_tag_text(node, "content:encoded") or _tag_text(node, "description")) or title
+        text = strip_meta(article_text(_tag_text(node, "content:encoded") or _tag_text(node, "description"))) or title
         texts[item_id] = text[:MAX_TEXT_CHARS]
         summary = text[:MAX_SUMMARY_CHARS]
         items.append(
@@ -150,6 +166,17 @@ def article_text(html: str) -> str:
         tag.append("\n")
     lines = (" ".join(line.split()) for line in soup.get_text().splitlines())
     return "\n".join(line for line in lines if line)
+
+
+def strip_meta(text: str) -> str:
+    """去掉署名、版头、作者编辑行和“阅读原文”等，只看开头几段（一段一行）。"""
+    kept = []
+    for i, line in enumerate(text.splitlines()):
+        if (i == 0 and _BYLINE.match(line)) or (i < _HEAD_PARAS and any(r.match(line) for r in _HEAD_META)):
+            continue
+        if not any(r.match(line) for r in _ANY_META):
+            kept.append(line)
+    return "\n".join(kept)
 
 
 def _tag_text(node, name: str) -> str:
