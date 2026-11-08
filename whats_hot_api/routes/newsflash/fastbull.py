@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 import re
+from datetime import datetime
 from urllib.parse import urljoin
 
 from starlette.requests import Request
 
-from whats_hot_api.config import config
-from whats_hot_api.models import NewsFlashItem, RouterData
-from whats_hot_api.utils.http_client import get, post
-from whats_hot_api.utils.newsflash import content_status, to_int
 from whats_hot_api.backfill import (
     BackfillPage,
     BackfillSpec,
@@ -20,6 +16,10 @@ from whats_hot_api.backfill import (
     payload_digest,
     unsupported,
 )
+from whats_hot_api.config import config
+from whats_hot_api.models import NewsFlashItem, RouterData
+from whats_hot_api.utils.http_client import get, post
+from whats_hot_api.utils.newsflash import content_status, to_int
 
 ROUTE_NAME = "fastbull"
 
@@ -131,7 +131,11 @@ async def _get_feed_list(board_type: str, no_cache: bool, *, timestamp: int | No
     for node in payload["pageDatas"]:
         if not isinstance(node, dict):
             raise ValueError("FastBull feed row is not an object")  # noqa: TRY004 - invalid upstream data
-        native_id = str(node.get("path") or "")
+        # English economic-calendar flashes use a presentation slug in ``path``
+        # while ``newsId`` remains the native detail identity. The Chinese feed
+        # keeps its established path identity; changing it would be an unrelated
+        # public-ID migration.
+        native_id = str(node.get("newsId") if board_type == "en" else node.get("path") or "")
         if not _NATIVE_ID_RE.fullmatch(native_id):
             raise ValueError("FastBull flash is missing its native id")
         item_id = (EN_FLASH_ID_PREFIX if board_type == "en" else FLASH_ID_PREFIX) + native_id
@@ -295,5 +299,5 @@ BACKFILL: dict[str, BackfillSpec] = {
         supports_before=True,
         verified_at="2026-10-14",
     ),
-    "en": unsupported("英文 API 可翻页，但现有 Core 对非数字 path 整批解析失败；修复解析前不得回溯。"),
+    "en": unsupported("英文 API 的实时原生 ID 已验证；历史 timestamp 分页尚未完成独立证据验证，暂不回溯。"),
 }

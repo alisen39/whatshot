@@ -112,7 +112,7 @@ async def test_fastbull_en_board_uses_en_edition_gateway(monkeypatch):
             _fastbull_feed_envelope([
                 {
                     "newsId": "4283409_1_0",
-                    "path": "4283409_1_0",
+                    "path": "us-nonfarm-payrolls-sa-oct-4283409",
                     "newsTitle": "Russian President Putin: Russia's Budget",
                     "newsType": 0,
                     "important": 0,
@@ -137,6 +137,25 @@ async def test_fastbull_en_board_uses_en_edition_gateway(monkeypatch):
     assert item.url == "https://www.fastbull.com/fastshort/4283409_1_0"
 
 
+@pytest.mark.asyncio
+async def test_fastbull_en_board_rejects_missing_native_news_id(monkeypatch):
+    async def fake_get(**kwargs):
+        return RequestResult(
+            False,
+            "fastbull-update",
+            _fastbull_feed_envelope([
+                {
+                    "newsId": None,
+                    "path": "us-nonfarm-payrolls-sa-oct-4283409",
+                    "newsTitle": "U.S. Nonfarm Payrolls (SA) (Oct)",
+                    "releasedDate": 1789666047235,
+                },
+            ]),
+        )
+
+    monkeypatch.setattr(fastbull, "get", fake_get)
+    with pytest.raises(ValueError, match="native id"):
+        await fastbull.handle_route(_request(b"type=en"), no_cache=True)
 
 
 @pytest.mark.asyncio
