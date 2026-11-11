@@ -338,9 +338,11 @@ _NBD_PAGE = """
 
 @pytest.mark.asyncio
 async def test_nbd_parses_today_blocks(monkeypatch):
-    _install_get(monkeypatch, {"https://www.nbd.com.cn/newspapers/today": _NBD_PAGE})
+    calls: list[str] = []
+    _install_get(monkeypatch, {"https://www.nbd.com.cn/newspapers/today": _NBD_PAGE}, calls)
     result = await epaper_local.handle_route(_request("nbd-mrjjxw"), no_cache=True)
 
+    assert calls == ["https://www.nbd.com.cn/newspapers/today"]
     assert result.type == "每日经济新闻 · 电子报"
     assert result.total == 2
     first = result.data[0]
@@ -349,6 +351,62 @@ async def test_nbd_parses_today_blocks(monkeypatch):
     assert first.desc == "第01版 封面"
     assert first.timestamp == _TS_0928
     assert result.data[1].url == "https://www.nbd.com.cn/articles/2026-09-28/1002.html"
+
+
+_NBD_EMPTY_NEXT_PAGE = """
+<html><body>
+今日报纸 : 2026-11-10
+<div class="newspapper"></div>
+<h3>《每日经济新闻》(2026年11月09日)</h3>
+</body></html>"""
+
+_NBD_LATEST_ARCHIVE = """
+<html><body>
+今日报纸 : 2026-11-09
+<div class="newspapper">
+<p class="newspapper-title">01 - 封面</p>
+<ul><li><a href="/articles/2026-11-09/2001.html">最近已出版文章</a></li></ul>
+</div>
+</body></html>"""
+
+
+@pytest.mark.asyncio
+async def test_nbd_empty_next_issue_falls_back_to_explicit_latest_archive(monkeypatch):
+    calls: list[str] = []
+    _install_get(
+        monkeypatch,
+        {
+            "https://www.nbd.com.cn/newspapers/2026-11-09": _NBD_LATEST_ARCHIVE,
+            "https://www.nbd.com.cn/newspapers/today": _NBD_EMPTY_NEXT_PAGE,
+        },
+        calls,
+    )
+
+    result = await epaper_local.handle_route(_request("nbd-mrjjxw"), no_cache=True)
+
+    assert calls == [
+        "https://www.nbd.com.cn/newspapers/today",
+        "https://www.nbd.com.cn/newspapers/2026-11-09",
+    ]
+    assert result.total == 1
+    assert result.data[0].title == "最近已出版文章"
+    assert result.data[0].timestamp == 1794153600000
+    assert "当期 2026-11-09" in (result.message or "")
+
+
+@pytest.mark.asyncio
+async def test_nbd_empty_issue_without_latest_heading_does_not_guess_previous_day(monkeypatch):
+    calls: list[str] = []
+    _install_get(
+        monkeypatch,
+        {"https://www.nbd.com.cn/newspapers/today": "今日报纸 : 2026-11-10"},
+        calls,
+    )
+
+    with pytest.raises(RuntimeError, match="当期没有解析到文章"):
+        await epaper_local.handle_route(_request("nbd-mrjjxw"), no_cache=True)
+
+    assert calls == ["https://www.nbd.com.cn/newspapers/today"]
 
 
 # --------------------------------------------------------------- 经济观察报(文字版分页)

@@ -287,13 +287,10 @@ async def _fetch_eeo(f: EpaperFetch) -> Issue:
 # ---------------------------------------------------------------- 每日经济新闻
 
 _NBD_TODAY = "https://www.nbd.com.cn/newspapers/today"
+_NBD_ARCHIVE = "https://www.nbd.com.cn/newspapers"
 
 
-async def _fetch_nbd(f: EpaperFetch) -> Issue:
-    """今日报纸文字版:div.newspapper 块,每块 p.newspapper-title("01 - 封面")+
-    本版文章;日期在"今日报纸 : YYYY-MM-DD"。周末显示上一个周五那一期
-    (board_api 用 5 个周末的 Wayback 存档核对过)。"""
-    _, text = await f.page(_NBD_TODAY)
+def _parse_nbd_issue(text: str) -> Issue:
     soup = BeautifulSoup(text, "lxml")
     m = re.search(r"今日报纸\s*[:：]\s*(\d{4}-\d{2}-\d{2})", soup.get_text(" "))
     if not m:
@@ -310,6 +307,35 @@ async def _fetch_nbd(f: EpaperFetch) -> Issue:
                 page.articles.append(Article(title=tag_text(a), url=urljoin(_NBD_TODAY, attr_of(a, "href"))))
         pages.append(page)
     return Issue(date.fromisoformat(m.group(1)), pages)
+
+
+async def _fetch_nbd(f: EpaperFetch) -> Issue:
+    """今日报纸文字版:div.newspapper 块,每块 p.newspapper-title("01 - 封面")+
+    本版文章;日期在"今日报纸 : YYYY-MM-DD"。周末显示上一个周五那一期
+    (board_api 用 5 个周末的 Wayback 存档核对过)。上游会在前一晚先把
+    /today 切到次日空壳,但页内的《每日经济新闻》(YYYY年MM月DD日)仍标明最近
+    已出版期;此时按该显式日期读取 /newspapers/YYYY-MM-DD,不盲减一天。"""
+    _, text = await f.page(_NBD_TODAY)
+    issue = _parse_nbd_issue(text)
+    if epaper.issue_to_items(issue):
+        return issue
+
+    latest = re.search(
+        r"《每日经济新闻》\s*[()（）]\s*(\d{4})年(\d{2})月(\d{2})日\s*[()（）]",
+        BeautifulSoup(text, "lxml").get_text(" "),
+    )
+    if not latest:
+        return issue
+    latest_day = date(*(int(part) for part in latest.groups()))
+    if latest_day >= issue.date:
+        return issue
+    _, archive_text = await f.page(f"{_NBD_ARCHIVE}/{latest_day.isoformat()}")
+    archive_issue = _parse_nbd_issue(archive_text)
+    if archive_issue.date != latest_day:
+        raise RuntimeError(
+            f"epaper-local 每日经济新闻归档日期不一致:{latest_day}->{archive_issue.date}"
+        )
+    return archive_issue
 
 
 # ---------------------------------------------------------------- 入口
