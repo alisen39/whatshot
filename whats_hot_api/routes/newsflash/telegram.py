@@ -18,7 +18,7 @@ from whats_hot_api.backfill import (
     encode_cursor,
 )
 
-ROUTE_NAME = "telegram-osint"
+ROUTE_NAME = "telegram"
 
 CHANNELS: dict[str, dict[str, str]] = {
     "intelslava": {"id": "intelslava", "label": "Intel Slava Z"},
@@ -39,8 +39,8 @@ SOURCE_LINK = "https://t.me/"
 
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
-    "title": "Telegram OSINT",
-    "description": "Telegram 活跃公开冲突与地缘信息频道动态（保留原始发布者观点）",
+    "title": "Telegram",
+    "description": "Telegram 公开频道动态（现为冲突与地缘信息频道，保留原始发布者观点）",
     "link": SOURCE_LINK,
     "params": {
         "type": {

@@ -7,7 +7,59 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from whats_hot_api.models import ListItem
+from whats_hot_api.backfill import snapshot
+from whats_hot_api.models import ListItem, NewsFlashItem, RouterData
+from whats_hot_api.utils.http_client import get
+
+# 按作者、账号的 feed（快讯路由 substack-newsletters、personal-blogs），一个作者是一个 type。
+ACCOUNT_FEED_BACKFILL = {
+    "*": snapshot("RSS/Atom 只含最近若干篇，不能翻页或按时间回溯。", verified_at="2026-11-12"),
+}
+
+
+async def fetch_account_feed(
+    meta: dict,
+    accounts: dict[str, tuple[str, str, str]],
+    account: str,
+    no_cache: bool = False,
+) -> RouterData:
+    """One account's RSS/Atom as newsflash items. ``accounts``: key → (名称, 主页, feed 地址).
+
+    Item ids are the feed's own (guid → Atom id → link), as when these feeds were hot lists.
+    """
+    name, link, feed_url = accounts[account]
+    result = await get(
+        url=feed_url,
+        no_cache=no_cache,
+        response_type="text",
+        headers={
+            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
+            "Referer": link,
+        },
+    )
+    items = [
+        NewsFlashItem(
+            id=item.id,
+            title=item.title,
+            content=item.desc or item.title,
+            contentStatus="summary",
+            source=name,
+            images=[item.cover] if item.cover else [],
+            timestamp=item.timestamp,
+            url=item.url,
+            mobileUrl=item.mobileUrl,
+        )
+        for item in parse_feed(result.data)
+    ]
+    return RouterData(
+        kind="newsflash",
+        **meta,
+        type=name,
+        total=len(items),
+        fromCache=result.from_cache,
+        updateTime=result.update_time,
+        data=items,
+    )
 
 
 def parse_feed(xml: str, *, limit: int | None = None) -> list[ListItem]:

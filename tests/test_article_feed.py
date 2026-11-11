@@ -4,7 +4,7 @@ import pytest
 from starlette.requests import Request
 
 from whats_hot_api.models import RouterData
-from whats_hot_api.routes.newsflash import wechat_qbit, zhidx
+from whats_hot_api.routes.newsflash import wechat, zhidx
 from whats_hot_api.utils import article_feed
 from whats_hot_api.utils.http_client import RequestResult
 
@@ -35,8 +35,8 @@ RSS_SAMPLE = f"""<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def _request() -> Request:
-    return Request({"type": "http", "method": "GET", "path": "/wechat-qbit", "query_string": b"", "headers": []})
+def _request(query_string: bytes = b"") -> Request:
+    return Request({"type": "http", "method": "GET", "path": "/", "query_string": query_string, "headers": []})
 
 
 @pytest.mark.asyncio
@@ -48,7 +48,7 @@ async def test_route_keeps_public_summary_and_private_full_text(monkeypatch):
         return RequestResult(True, "2026-11-07T01:00:00+00:00", RSS_SAMPLE)
 
     monkeypatch.setattr(article_feed, "get", fake_get)
-    result = await wechat_qbit.handle_route(_request())
+    result = await wechat.handle_route(_request(b"type=qbit"))
 
     assert captured == {
         "url": "https://wechat2rss.xlab.app/feed/7131b577c61365cb47e81000738c10d872685908.xml",
@@ -57,7 +57,7 @@ async def test_route_keeps_public_summary_and_private_full_text(monkeypatch):
         "response_type": "text",
         "headers": {"User-Agent": "WhatsHot/1.0"},
     }
-    assert (result.kind, result.name, result.title, result.type, result.total) == ("newsflash", "wechat-qbit", "量子位", "最新文章", 2)
+    assert (result.kind, result.name, result.title, result.type, result.total) == ("newsflash", "wechat", "微信公众号", "量子位", 2)
     assert result.fromCache is True  # A cached feed is re-parsed, so the full text is still there.
 
     article = result.data[0]
@@ -75,7 +75,7 @@ async def test_route_keeps_public_summary_and_private_full_text(monkeypatch):
 
 def test_full_text_never_leaves_the_process():
     items, texts = article_feed.parse_feed(RSS_SAMPLE, "量子位")
-    data = RouterData(kind="newsflash", **article_feed.route_meta("wechat-qbit"), type="最新文章",
+    data = RouterData(kind="newsflash", **article_feed.WECHAT_META, type="量子位",
                       total=len(items), fromCache=False, updateTime="2026-11-07T01:00:00+00:00", data=items)
     data._analysis_texts = texts
 
@@ -83,6 +83,26 @@ def test_full_text_never_leaves_the_process():
     assert "_analysis_texts" not in RouterData.model_json_schema()["properties"]
     assert data.model_copy(update={"title": "x"})._analysis_texts == texts
     assert RouterData.model_validate(data.model_dump())._analysis_texts == {}
+
+
+@pytest.mark.asyncio
+async def test_wechat_accounts_are_types_of_one_route(monkeypatch):
+    urls = []
+
+    async def fake_get(**kwargs):
+        urls.append(kwargs["url"])
+        return RequestResult(False, "2026-11-12T01:00:00+00:00", RSS_SAMPLE)
+
+    monkeypatch.setattr(article_feed, "get", fake_get)
+    assert list(wechat.ROUTE_META["params"]["type"]["type"].items())[:2] == [("qbit", "量子位"), ("jiqizhixin", "机器之心")]
+    assert len(article_feed.WECHAT_FEEDS) == 8
+    default = await wechat.handle_route(_request())
+    other = await wechat.handle_route(_request(b"type=42zhangjing"))
+
+    assert urls == [article_feed.WECHAT_FEEDS["qbit"][1], article_feed.WECHAT_FEEDS["42zhangjing"][1]]
+    assert (default.type, default.data[0].source) == ("量子位", "量子位")
+    assert (other.type, other.data[0].source) == ("42章经", "42章经")
+    assert other._analysis_texts  # Every account keeps the full text for the AI pipelines.
 
 
 def test_article_id_ignores_share_parameters():

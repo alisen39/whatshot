@@ -1,7 +1,7 @@
 """pro-communities 路由测试：mock 共享 get，fixtures 依 board_api 证据结构净化内联。
 
 证据来源：tmp/board_api/pro_communities/evidence/
-（01_muchong_top_dayhot、04_muchong_top_digest、07_maimai_hot_rank、08_jike_topic_ai_explore）。
+（01_muchong_top_dayhot、04_muchong_top_digest、07_maimai_hot_rank）。即刻圈子见 test_jike_route.py。
 """
 
 from __future__ import annotations
@@ -154,52 +154,6 @@ async def test_maimai_missing_next_data_is_rejected(monkeypatch):
         await route.handle_route(_request("maimai-hot"), no_cache=True)
 
 
-# ---------------------------------------------------------------- 即刻
-
-
-@pytest.mark.asyncio
-async def test_jike_maps_posts_with_title_from_content(monkeypatch):
-    captured: dict = {}
-    props = {
-        "topic": {"id": "63579abb6724cc583b9bba9a", "name": "AI探索站"},
-        "posts": [
-            {"id": "6ab69e93141b85b2926a94eb", "content": "第一行是标题\n第二行正文", "type": "ORIGINAL_POST",
-             "likeCount": 46, "createdAt": "2026-09-25T16:17:23.420Z",
-             "user": {"screenName": "郦橙锦妖Vanessa"}, "pictures": []},
-            {"id": "bbbb", "content": "长" * 90, "type": "REPOST", "likeCount": 3,
-             "createdAt": "2026-09-24T08:00:00.000Z", "user": None,
-             "pictures": [{"picUrl": "https://i9.taou.com/pic.jpg"}]},
-        ],
-    }
-    monkeypatch.setattr(route, "get", _fake_get(_next_page(props), captured))
-    result = await route.handle_route(_request("jike-ai-explore"), no_cache=True)
-
-    assert captured["url"] == "https://m.okjike.com/topics/63579abb6724cc583b9bba9a"
-    first, second = result.data
-    assert first.id == "6ab69e93141b85b2926a94eb"
-    assert first.title == "第一行是标题"  # 帖子没有标题，取正文第一行
-    assert first.url == "https://m.okjike.com/originalPosts/6ab69e93141b85b2926a94eb"
-    assert first.hot == 46  # likeCount
-    assert first.author == "郦橙锦妖Vanessa"
-    expected = int(datetime(2026, 9, 25, 16, 17, 23, 420000, tzinfo=UTC).timestamp() * 1000)
-    assert first.timestamp == expected  # createdAt ISO → 毫秒
-    assert second.url == "https://m.okjike.com/reposts/bbbb"  # REPOST → reposts 路径
-    assert second.title == "长" * 80 + "…"  # 超 80 字截断
-    assert second.cover == "https://i9.taou.com/pic.jpg"
-    assert second.author is None
-
-
-@pytest.mark.asyncio
-async def test_jike_empty_content_post_is_skipped(monkeypatch):
-    props = {"topic": {"id": "x"}, "posts": [
-        {"id": "has-content", "content": "正文", "likeCount": 1, "createdAt": "2026-09-24T08:00:00.000Z"},
-        {"id": "no-content", "content": "", "likeCount": 2},
-    ]}
-    monkeypatch.setattr(route, "get", _fake_get(_next_page(props)))
-    result = await route.handle_route(_request("jike-pm-daily"), no_cache=True)
-    assert [item.id for item in result.data] == ["has-content"]
-
-
 # ---------------------------------------------------------------- 入口
 
 
@@ -210,7 +164,7 @@ async def test_unknown_board_is_rejected():
 
 
 def test_type_map_declares_all_boards():
-    assert len(route._TYPE_MAP) == 9
+    assert len(route._TYPE_MAP) == 7
     assert next(iter(route._TYPE_MAP)) == "muchong-dayhot"  # 声明序第一个是默认榜
-    assert set(route._TYPE_MAP) == set(route._MUCHONG) | set(route._JIKE) | {"maimai-hot"}
+    assert set(route._TYPE_MAP) == set(route._MUCHONG) | {"maimai-hot"}
     assert route.ROUTE_META["params"]["type"]["type"] is route._TYPE_MAP

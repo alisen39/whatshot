@@ -321,7 +321,7 @@ async def test_history_end_pages_finish_cleanly(monkeypatch):
 
 async def test_p3_cursor_routes(monkeypatch):
     from whats_hot_api.routes.hotlist import cls_depth
-    from whats_hot_api.routes.newsflash import telegram_osint, xuangubao
+    from whats_hot_api.routes.newsflash import telegram, xuangubao
 
     rows = [{"id": 2, "title": "a", "published_at": 1791900100}, {"id": 1, "title": "b", "published_at": 1791900000}]
     rec = Recorder({"data": {"items": rows}}, {"data": {"items": []}})
@@ -335,8 +335,8 @@ async def test_p3_cursor_routes(monkeypatch):
             '<div class="tgme_widget_message" data-post="cig/101"><div class="tgme_widget_message_text">older</div>'
             '<time datetime="2026-10-13T00:00:00+00:00"></time></div>')
     rec = Recorder(html)
-    monkeypatch.setattr(telegram_osint, "get", rec)
-    page = await telegram_osint.backfill_page("cig", {}, '{"before":"200"}')
+    monkeypatch.setattr(telegram, "get", rec)
+    page = await telegram.backfill_page("cig", {}, '{"before":"200"}')
     assert rec.calls[0]["params"] == {"before": "200"} and decode_cursor(page.next_cursor) == {"before": "101"}
 
     assembled = {"errno": 0, "data": {"top_article": [{"id": 9, "title": "pinned", "ctime": 1700000000}],

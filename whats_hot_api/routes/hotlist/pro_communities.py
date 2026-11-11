@@ -1,6 +1,6 @@
-"""专业社区：小木虫、脉脉、即刻（多站点，type=站点-栏目）。
+"""专业社区：小木虫、脉脉（多站点，type=站点-栏目）。
 
-迁移自 board_api pro_communities 单元（9 个已完成榜），每个子榜 1 个请求：
+迁移自 board_api pro_communities 单元，每个子榜 1 个请求（即刻 2 个圈子 2026-11-12 移到快讯路由 ``jike``）：
 - 小木虫（muchong.com，GBK）6 个榜：帖子排行榜页 ``top-<榜>-1``（服务端渲染 HTML，``tr.forum_list``），
   榜：dayhot 24小时热榜、yule 休闲娱乐、scredit 散金热榜、digest 最新精华贴、helpcredit 热门悬赏贴、
   hot 热门话题贴。末尾 ``-1`` 是页码，只取第 1 页（最新精华贴共 3 页、热门悬赏贴共 2 页）。
@@ -9,13 +9,9 @@
 - 脉脉（maimai.cn）热榜：热榜页 ``/n/content/hot-rank/topic`` 是 Next.js 服务端渲染，
   取 ``__NEXT_DATA__.props.pageProps.topics``；话题链接 ``global-topic?circle_type=<type 或 9>&topic_id=<id>``；
   数据里没有时间，timestamp 留空
-- 即刻（m.okjike.com）2 个圈子：圈子页 ``/topics/<圈子 id>``（Next.js 服务端渲染）取 ``pageProps.posts``，
-  服务端只渲染 10 条，顺序是原站给的精选 / 热门序（不是按时间，board_api 实测），照原站输出。
-  圈子 id 由 tophub 条目的帖子页反查（board_api 分析阶段）：AI探索站 63579abb6724cc583b9bba9a、
-  产品经理的日常 563a2995306dab1300a32227。帖子没有标题，取正文第一行非空文字（超 80 字截断加"…"）
 
 丁香园论坛热榜要过极验 GEETEST v4 人机验证（PC 页与帖子页都是验证页，H5 包里没有热榜接口），不迁（board_api README）。
-请求头照 board_api 证据：三站用 python-httpx 缺省请求头也 200、数据相同，路由照 whatshot 惯例带项目缺省 Chrome UA。
+请求头照 board_api 证据：小木虫、脉脉用 python-httpx 缺省请求头也 200、数据相同，路由照 whatshot 惯例带项目缺省 Chrome UA。
 """
 
 from __future__ import annotations
@@ -41,8 +37,6 @@ _TYPE_MAP: dict[str, str] = {
     "muchong-helpcredit": "小木虫 · 热门悬赏贴",
     "muchong-hot": "小木虫 · 热门话题贴",
     "maimai-hot": "脉脉 · 热榜",
-    "jike-ai-explore": "即刻 · AI探索站",
-    "jike-pm-daily": "即刻 · 产品经理的日常",
 }
 
 _DEFAULT_TYPE = "muchong-dayhot"
@@ -50,7 +44,7 @@ _DEFAULT_TYPE = "muchong-dayhot"
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": "专业社区",
-    "description": "小木虫帖子排行榜（24小时热榜、休闲娱乐、散金热榜、最新精华贴、热门悬赏贴、热门话题贴）、脉脉热榜、即刻圈子（AI探索站、产品经理的日常）。",
+    "description": "小木虫帖子排行榜（24小时热榜、休闲娱乐、散金热榜、最新精华贴、热门悬赏贴、热门话题贴）、脉脉热榜。",
     "link": "https://muchong.com/",
     "params": {"type": {"name": "站点-栏目", "type": _TYPE_MAP}},
 }
@@ -72,16 +66,7 @@ _MUCHONG: dict[str, tuple[str, str]] = {
     "muchong-hot": ("hot", "热门话题贴"),
 }
 
-# 即刻圈子 id（tophub 快照第 1 条帖子页的 pageProps.post.topic.id 反查）
-_JIKE: dict[str, str] = {
-    "jike-ai-explore": "63579abb6724cc583b9bba9a",
-    "jike-pm-daily": "563a2995306dab1300a32227",
-}
-
 _MAIMAI = "https://maimai.cn/n/content/hot-rank/topic"
-_JIKE_TOPICS = "https://m.okjike.com/topics/"
-_TITLE_MAX = 80
-_DESC_MAX = 500
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
@@ -90,8 +75,6 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
         raise ValueError(f"Unknown board '{board}' for route '{ROUTE_NAME}'")
     if board in _MUCHONG:
         list_data = await _get_muchong(board, no_cache)
-    elif board in _JIKE:
-        list_data = await _get_jike(board, no_cache)
     else:
         list_data = await _get_maimai(no_cache)
     return RouterData(
@@ -240,58 +223,3 @@ async def _get_maimai(no_cache: bool) -> dict:
             )
         )
     return _finish(result, items)
-
-
-# ---------------------------------------------------------------- 即刻
-
-
-async def _get_jike(board: str, no_cache: bool) -> dict:
-    url = f"{_JIKE_TOPICS}{_JIKE[board]}"
-    result = await get(
-        url=url,
-        headers={**_BASE_HEADERS, "Accept": _HTML_ACCEPT},
-        no_cache=no_cache,
-        response_type="text",
-        cache_key=f"{ROUTE_NAME}:{board}",
-    )
-    props = _next_data_props(str(result.data))
-    posts = props.get("posts")
-    if not isinstance(posts, list):
-        raise RuntimeError(  # noqa: TRY004 - upstream shape problem, not a caller bug
-            f"jike topic page {url} has no posts list (page changed)"
-        )
-    items: list[ListItem] = []
-    for post in posts:
-        if not isinstance(post, dict):
-            continue
-        post_id = str(post.get("id") or "")
-        content = str(post.get("content") or "")
-        title = _post_title(content)
-        if not post_id or not title:
-            continue
-        kind = "originalPosts" if post.get("type") in (None, "ORIGINAL_POST") else "reposts"
-        pictures = post.get("pictures")
-        cover = pictures[0].get("picUrl") if isinstance(pictures, list) and pictures and isinstance(pictures[0], dict) else None
-        user = post.get("user") if isinstance(post.get("user"), dict) else {}
-        items.append(
-            ListItem(
-                id=post_id,
-                title=title,
-                url=f"https://m.okjike.com/{kind}/{post_id}",
-                mobileUrl=f"https://m.okjike.com/{kind}/{post_id}",
-                hot=post.get("likeCount"),
-                author=user.get("screenName") or None,
-                cover=cover,
-                desc=re.sub(r"\s+", " ", content).strip()[:_DESC_MAX] or None,
-                timestamp=get_time(str(post.get("createdAt") or "")),
-            )
-        )
-    return _finish(result, items)
-
-
-def _post_title(content: str) -> str:
-    """帖子没有标题：取正文第一行非空文字，超过 80 字截断加"…"。"""
-    first = next((line.strip() for line in (content or "").splitlines() if line.strip()), "")
-    if not first:
-        return ""
-    return first if len(first) <= _TITLE_MAX else first[:_TITLE_MAX] + "…"

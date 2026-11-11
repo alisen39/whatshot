@@ -24,24 +24,32 @@ FEED_TTL = 3600  # Cloud 每小时拉一次；普通读一小时内复用缓存
 MAX_TEXT_CHARS = 32_000
 MAX_SUMMARY_CHARS = 500
 
-# route → (名称, feed 地址)
+# 公众号路由 ``wechat``，每个号是 ``type=<key>``：key → (名称, feed 地址)。第一个是默认号；
+# 新号加在末尾，并加进 Cloud pj_07/services/board_intervals.py。
+WECHAT_ROUTE = "wechat"
 WECHAT_FEEDS: dict[str, tuple[str, str]] = {
-    "wechat-qbit": ("量子位", f"{WECHAT_FEED_BASE}/7131b577c61365cb47e81000738c10d872685908.xml"),
-    "wechat-jiqizhixin": ("机器之心", f"{WECHAT_FEED_BASE}/51e92aad2728acdd1fda7314be32b16639353001.xml"),
-    "wechat-xinzhiyuan": ("新智元", f"{WECHAT_FEED_BASE}/ede30346413ea70dbef5d485ea5cbb95cca446e7.xml"),
-    "wechat-geekpark": ("极客公园", f"{WECHAT_FEED_BASE}/1a5aec98e71c707c8ca092bc2c255b9d4bac477d.xml"),
-    "wechat-xixiaoyao": ("夕小瑶科技说", f"{WECHAT_FEED_BASE}/a1cd365aa14ed7d64cabfc8aa086da40ecaba34d.xml"),
-    "wechat-paperweekly": ("PaperWeekly", f"{WECHAT_FEED_BASE}/3be891c2f4e526629ab055a297cc2cd6c1f0a563.xml"),
-    "wechat-cv": ("我爱计算机视觉", f"{WECHAT_FEED_BASE}/b81ffcfff1107b5265cd7e39de610dc7ca72caf4.xml"),
-    "wechat-42zhangjing": ("42章经", f"{WECHAT_FEED_BASE}/31436fcc3bba8c2c2a9337a163afcb3b5a57a0a0.xml"),
+    "qbit": ("量子位", f"{WECHAT_FEED_BASE}/7131b577c61365cb47e81000738c10d872685908.xml"),
+    "jiqizhixin": ("机器之心", f"{WECHAT_FEED_BASE}/51e92aad2728acdd1fda7314be32b16639353001.xml"),
+    "xinzhiyuan": ("新智元", f"{WECHAT_FEED_BASE}/ede30346413ea70dbef5d485ea5cbb95cca446e7.xml"),
+    "geekpark": ("极客公园", f"{WECHAT_FEED_BASE}/1a5aec98e71c707c8ca092bc2c255b9d4bac477d.xml"),
+    "xixiaoyao": ("夕小瑶科技说", f"{WECHAT_FEED_BASE}/a1cd365aa14ed7d64cabfc8aa086da40ecaba34d.xml"),
+    "paperweekly": ("PaperWeekly", f"{WECHAT_FEED_BASE}/3be891c2f4e526629ab055a297cc2cd6c1f0a563.xml"),
+    "cv": ("我爱计算机视觉", f"{WECHAT_FEED_BASE}/b81ffcfff1107b5265cd7e39de610dc7ca72caf4.xml"),
+    "42zhangjing": ("42章经", f"{WECHAT_FEED_BASE}/31436fcc3bba8c2c2a9337a163afcb3b5a57a0a0.xml"),
 }
-# 媒体网站自己的 RSS，正文在 content:encoded 或 description 里。
+WECHAT_META: dict = {
+    "name": WECHAT_ROUTE,
+    "title": "微信公众号",
+    "description": "微信公众号文章（经 wechat2rss）",
+    "link": "https://wechat2rss.xlab.app/",
+    "params": {"type": {"name": "公众号", "type": {key: name for key, (name, _url) in WECHAT_FEEDS.items()}}},
+}
+# 媒体网站自己的 RSS，正文在 content:encoded 或 description 里。一个网站一个路由。
 SITE_FEEDS: dict[str, tuple[str, str]] = {
     "zhidx": ("智东西", "https://zhidx.com/rss"),
     "leiphone": ("雷锋网", "https://www.leiphone.com/feed"),
     "ifanr-news": ("爱范儿", "https://www.ifanr.com/feed"),
 }
-FEEDS = {**WECHAT_FEEDS, **SITE_FEEDS}
 
 # Backfill capability; see whats_hot_api/backfill.py.
 BACKFILL: dict[str, BackfillSpec] = {
@@ -70,18 +78,23 @@ _ANY_META = [re.compile(r"^(阅读原文|跳转微信打开)$"), re.compile(r"^�
 
 
 def route_meta(route: str) -> dict:
-    name, url = FEEDS[route]
-    wechat = route in WECHAT_FEEDS
-    return {
-        "name": route,
-        "title": name,
-        "description": f"{name}微信公众号文章" if wechat else f"{name}网站最新文章",
-        "link": url,
-    }
+    name, url = SITE_FEEDS[route]
+    return {"name": route, "title": name, "description": f"{name}网站最新文章", "link": url}
 
 
 async def fetch_article_feed(route: str, no_cache: bool = False) -> RouterData:
-    name, url = FEEDS[route]
+    """媒体网站路由。"""
+    name, url = SITE_FEEDS[route]
+    return await fetch_feed(route_meta(route), name, url, "最新文章", no_cache)
+
+
+async def fetch_wechat_feed(account: str, no_cache: bool = False) -> RouterData:
+    """公众号路由的一个号。"""
+    name, url = WECHAT_FEEDS[account]
+    return await fetch_feed(WECHAT_META, name, url, name, no_cache)
+
+
+async def fetch_feed(meta: dict, source: str, url: str, type_label: str, no_cache: bool) -> RouterData:
     # 缓存原始 XML，命中缓存时也重新解析，正文因此始终可用。
     result = await get(
         url=url,
@@ -90,11 +103,11 @@ async def fetch_article_feed(route: str, no_cache: bool = False) -> RouterData:
         response_type="text",
         headers=REQUEST_HEADERS,
     )
-    items, texts = parse_feed(result.data, name)
+    items, texts = parse_feed(result.data, source)
     data = RouterData(
         kind="newsflash",
-        **route_meta(route),
-        type="最新文章",
+        **meta,
+        type=type_label,
         total=len(items),
         fromCache=result.from_cache,
         updateTime=result.update_time,
