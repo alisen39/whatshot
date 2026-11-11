@@ -66,6 +66,28 @@ async def test_personal_blog_reads_atom_and_defaults_to_first_author(monkeypatch
     assert (post.title, post.content, post.url) == ("Reflections", "Some thoughts.", "https://blog.samaltman.com/reflections")
 
 
+@pytest.mark.asyncio
+async def test_pages_are_skipped_and_untitled_posts_take_their_opening(monkeypatch):
+    """2026-11-12 feeds: Lilian Weng lists her FAQ page dated 0001; Sam Altman's untitled post is titled "-"."""
+    lilian = """<rss><channel>
+      <item><title>FAQ</title><link>https://lilianweng.github.io/faq/</link>
+        <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://lilianweng.github.io/faq/</guid></item>
+      <item><title>Why We Think</title><link>https://lilianweng.github.io/posts/2025-05-01-thinking/</link>
+        <pubDate>Thu, 01 May 2025 00:00:00 +0000</pubDate><guid>https://lilianweng.github.io/posts/2025-05-01-thinking/</guid></item>
+    </channel></rss>"""
+    altman = """<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>tag:blog.samaltman.com,2013:Post/2279512</id>
+      <title>-</title><link href="https://blog.samaltman.com/2279512"/><published>2026-04-10T22:55:13Z</published>
+      <content type="html"><![CDATA[<p>Here is a photo of my family. I love them more than anything.</p>]]></content></entry></feed>"""
+    monkeypatch.setattr(feed, "get", _fake_get(lilian, {}))
+    result = await personal_blogs.handle_route(_request(b"type=lilian-weng"))
+    assert [item.title for item in result.data] == ["Why We Think"]
+
+    monkeypatch.setattr(feed, "get", _fake_get(altman, {}))
+    [post] = (await personal_blogs.handle_route(_request(b"type=sam-altman"))).data
+    assert post.title == "Here is a photo of my family. I love them more than anything."
+    assert post.id == "tag:blog.samaltman.com,2013:Post/2279512"
+
+
 def test_account_routes_declare_accounts_and_snapshot_backfill():
     assert list(substack_newsletters.ROUTE_META["params"]["type"]["type"]) == [
         "gary-marcus", "ahead-of-ai", "dwarkesh-patel", "one-useful-thing", "interconnects"]

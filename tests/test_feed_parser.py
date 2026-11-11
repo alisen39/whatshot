@@ -71,3 +71,14 @@ def test_parse_feed_keeps_every_item_by_default():
 
 def test_parse_feed_honors_explicit_limit():
     assert len(parse_feed(_rss_with(35), limit=10)) == 10
+
+
+def test_go_zero_date_is_no_date():
+    """Hugo writes "01 Jan 0001" for undated pages; email.utils would read 0001 as 2001 (2026-11-12, lilianweng.github.io)."""
+    rss = """<rss><channel><item><guid>https://lilianweng.github.io/faq/</guid><title>FAQ</title>
+      <link>https://lilianweng.github.io/faq/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate></item>
+      <item><guid>https://example.com/p</guid><title>Post</title><link>https://example.com/p</link>
+      <pubDate>Mon, 09 Nov 2026 12:00:00 +0001</pubDate></item></channel></rss>"""
+    faq, post = sorted(parse_feed(rss), key=lambda item: item.title)
+    assert faq.timestamp is None
+    assert post.timestamp == _ms("2026-11-09T11:59:00+00:00")  # A +0001 offset is not a zero date.

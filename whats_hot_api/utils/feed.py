@@ -11,6 +11,11 @@ from whats_hot_api.backfill import snapshot
 from whats_hot_api.models import ListItem, NewsFlashItem, RouterData
 from whats_hot_api.utils.http_client import get
 
+# Go 的零值时间：Hugo 给没有日期的页面写 “01 Jan 0001”，email.utils 会把 0001 当两位年份读成 2001
+# （再被当成秒级时间戳 ×1000）。
+_ZERO_DATE = re.compile(r"(?<![+-])\b0001\b")
+_TITLE_MAX = 80
+
 # 按作者、账号的 feed（快讯路由 substack-newsletters、personal-blogs），一个作者是一个 type。
 ACCOUNT_FEED_BACKFILL = {
     "*": snapshot("RSS/Atom 只含最近若干篇，不能翻页或按时间回溯。", verified_at="2026-11-12"),
@@ -25,7 +30,8 @@ async def fetch_account_feed(
 ) -> RouterData:
     """One account's RSS/Atom as newsflash items. ``accounts``: key → (名称, 主页, feed 地址).
 
-    Item ids are the feed's own (guid → Atom id → link), as when these feeds were hot lists.
+    Item ids are the feed's own (guid → Atom id → link), as when these feeds were hot lists. An entry
+    without a publish time is a page, not a post (Lilian Weng's FAQ, dated 0001), and is skipped.
     """
     name, link, feed_url = accounts[account]
     result = await get(
@@ -40,7 +46,7 @@ async def fetch_account_feed(
     items = [
         NewsFlashItem(
             id=item.id,
-            title=item.title,
+            title=_account_title(item),
             content=item.desc or item.title,
             contentStatus="summary",
             source=name,
@@ -50,6 +56,7 @@ async def fetch_account_feed(
             mobileUrl=item.mobileUrl,
         )
         for item in parse_feed(result.data)
+        if item.timestamp
     ]
     return RouterData(
         kind="newsflash",
@@ -106,6 +113,13 @@ def parse_feed(xml: str, *, limit: int | None = None) -> list[ListItem]:
     return items[:limit]
 
 
+def _account_title(item: ListItem) -> str:
+    """An untitled post (Posthaven writes its title as “-”) is titled by the opening of its text."""
+    if re.search(r"\w", item.title) or not item.desc:
+        return item.title
+    return item.desc if len(item.desc) <= _TITLE_MAX else item.desc[:_TITLE_MAX] + "…"
+
+
 def _feed_link(node) -> str:
     link = node.find("link")
     if not link:
@@ -148,7 +162,7 @@ def _tag_text(node, name: str) -> str:
 
 def _parse_timestamp(value: Any) -> int | None:
     text = str(value or "").strip()
-    if not text:
+    if not text or _ZERO_DATE.search(text):
         return None
     try:
         return int(parsedate_to_datetime(text).timestamp() * 1000)
