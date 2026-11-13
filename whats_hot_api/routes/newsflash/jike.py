@@ -74,7 +74,7 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
             NewsFlashItem(
                 id=post_id,
                 title=title,
-                content=content,
+                content=_post_body(content, title),
                 source=user.get("screenName") or name,
                 images=[p["picUrl"] for p in post.get("pictures") or [] if p.get("picUrl")],
                 metrics=metrics(likes=post.get("likeCount")),
@@ -101,3 +101,9 @@ def _post_title(content: str) -> str:
     """帖子没有标题：取正文第一行非空文字，超过 80 字截断加“…”。"""
     first = next((line.strip() for line in content.splitlines() if line.strip()), "")
     return first if len(first) <= _TITLE_MAX else first[:_TITLE_MAX] + "…"
+
+
+def _post_body(content: str, title: str) -> str:
+    """正文去掉已作标题的第一行，免得卡片上标题下面再重复一遍；标题被截断或没有别的内容时保留全文。"""
+    rest = content.split(title, 1)[1].strip() if not title.endswith("…") else ""
+    return rest or content

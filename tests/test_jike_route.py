@@ -53,13 +53,14 @@ async def test_jike_maps_posts_to_newsflash(monkeypatch):
     first, second = result.data  # 按发帖时间倒序；空帖跳过
     assert first.id == "6ab69e93141b85b2926a94eb"
     assert first.title == "第一行是标题"  # 帖子没有标题，取正文第一行
-    assert first.content == "第一行是标题\n第二行正文"
+    assert first.content == "第二行正文"  # 第一行已作标题，正文里不再重复
     assert first.url == "https://m.okjike.com/originalPosts/6ab69e93141b85b2926a94eb"
     assert first.source == "郦橙锦妖Vanessa"
     assert first.metrics == {"likes": 46}
     assert first.timestamp == int(datetime(2026, 9, 25, 16, 17, 23, 420000, tzinfo=UTC).timestamp() * 1000)
     assert second.url == "https://m.okjike.com/reposts/bbbb"  # REPOST → reposts 路径
     assert second.title == "长" * 80 + "…"  # 超 80 字截断
+    assert second.content == "长" * 90  # 标题被截断时保留全文
     assert second.images == ["https://i9.taou.com/pic.jpg"]
     assert second.source == "AI探索站"  # 没有作者时用圈子名
 

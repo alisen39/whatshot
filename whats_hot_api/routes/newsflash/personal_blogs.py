@@ -22,10 +22,10 @@ BLOGS: dict[str, tuple[str, str, str]] = {
         "https://news.google.com/rss/search?q=site%3Adarioamodei.com%20Dario%20Amodei&hl=en-US&gl=US&ceid=US%3Aen",
     ),
     "karpathy": ("Andrej Karpathy", "https://karpathy.github.io/", "https://karpathy.github.io/feed.xml"),
-    "lilian-weng": ("Lil'Log (Lilian Weng)", "https://lilianweng.github.io/", "https://lilianweng.github.io/index.xml"),
+    "lilian-weng": ("Lilian Weng", "https://lilianweng.github.io/", "https://lilianweng.github.io/index.xml"),
     "simon-willison": ("Simon Willison", "https://simonwillison.net/", "https://simonwillison.net/atom/everything/"),
     "tomer-tunguz": ("Tomer Tunguz", "https://tomtunguz.com/", "https://tomtunguz.com/index.xml"),
-    "ruanyifeng": ("阮一峰的网络日志", "https://www.ruanyifeng.com/blog/", "https://www.ruanyifeng.com/blog/atom.xml"),
+    "ruanyifeng": ("阮一峰", "https://www.ruanyifeng.com/blog/", "https://www.ruanyifeng.com/blog/atom.xml"),
     "daring-fireball": ("Daring Fireball", "https://daringfireball.net/", "https://daringfireball.net/feeds/main"),
     "latent-space": ("Latent Space", "https://latent.space/", "https://latent.space/feed"),
 }
