@@ -17,6 +17,7 @@ from whats_hot_api.routes.hotlist import (
     huggingface_releases,
     inclusionai_huggingface,
     kimi_updates,
+    meituan_longcat,
     meta_ai_blog,
     minimax_news,
     runway_news,
@@ -279,6 +280,25 @@ async def test_inclusionai_route_uses_release_grouping(monkeypatch):
     monkeypatch.setattr(huggingface_releases, "get", fake_get)
     result = await inclusionai_huggingface.handle_route(request())
     assert [i.title for i in result.data] == ["Ling-3.1-flash"]
+
+
+async def test_meituan_longcat_lists_official_account_releases(monkeypatch):
+    seen = {}
+
+    async def fake_get(**kwargs):
+        seen.update(kwargs)
+        return RequestResult(False, "2026-11-15T00:00:00+00:00",
+                             [_model("meituan-longcat/LongCat-2.5-W4A4", "2026-11-04T13:50:12Z"),
+                              _model("meituan-longcat/LongCat-2.5", "2026-11-04T11:48:50Z"),
+                              _model("meituan-longcat/LongCat-2.0", "2026-07-05T00:07:44Z"),
+                              _model("meituan-longcat/LongCat-2.0-FP8", "2026-07-03T08:47:31Z")])
+
+    monkeypatch.setattr(huggingface_releases, "get", fake_get)
+    result = await meituan_longcat.handle_route(request())
+    assert ("author", "meituan-longcat") in seen["params"]
+    assert [(i.title, i.url) for i in result.data] == [
+        ("LongCat-2.5", "https://huggingface.co/meituan-longcat/LongCat-2.5"),
+        ("LongCat-2.0", "https://huggingface.co/meituan-longcat/LongCat-2.0")]
 
 
 async def test_zhipu_falls_back_to_release_notes(monkeypatch):
