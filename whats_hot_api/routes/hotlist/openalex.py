@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from starlette.requests import Request
 
+from whats_hot_api.config import config
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
@@ -80,6 +81,8 @@ async def _get_list(no_cache: bool) -> dict:
         headers={
             "Accept": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            # Header rather than api_key=, so the key never shows up in logged or stored error URLs.
+            **({"Authorization": f"Bearer {config.OPENALEX_API_KEY}"} if config.OPENALEX_API_KEY else {}),
         },
     )
     return {

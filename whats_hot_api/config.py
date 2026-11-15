@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: str = ""
     REDIS_DB: int = 0
     ZHIHU_COOKIE: str = ""
+    OPENALEX_API_KEY: str = ""  # Optional; without it requests share the per-IP keyless daily budget
     ROUTE_PROXY: str = ""  # JSON: {"github.com":"http://127.0.0.1:7890"}
     SOURCE_RSSHUB_BASE_URLS: str = ""  # Optional comma/space separated RSSHub instances
 

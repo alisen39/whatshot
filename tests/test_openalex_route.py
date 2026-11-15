@@ -47,9 +47,11 @@ def _request() -> Request:
 @pytest.mark.asyncio
 async def test_openalex_fetches_latest_quality_filtered_journal_articles(monkeypatch):
     monkeypatch.setattr(openalex, "_utc_today", lambda: "2026-07-17")
+    monkeypatch.setattr(openalex.config, "OPENALEX_API_KEY", "")
 
     async def fake_get(**kwargs):  # noqa: ANN003
         assert kwargs["url"] == "https://api.openalex.org/works"
+        assert "Authorization" not in kwargs["headers"]
         assert kwargs["params"] == {
             "filter": (
                 "to_publication_date:2026-07-17,"
@@ -90,6 +92,21 @@ async def test_openalex_fetches_latest_quality_filtered_journal_articles(monkeyp
         " · DOI：10.1017/jfm.2026.10123"
         " · 开放获取"
     )
+
+
+@pytest.mark.asyncio
+async def test_openalex_sends_configured_api_key_as_bearer_header(monkeypatch):
+    monkeypatch.setattr(openalex.config, "OPENALEX_API_KEY", "test-key")
+    seen = {}
+
+    async def fake_get(**kwargs):
+        seen.update(kwargs)
+        return RequestResult(False, "2026-07-17T00:00:00+00:00", {"results": []})
+
+    monkeypatch.setattr(openalex, "get", fake_get)
+    await openalex.handle_route(_request())
+    assert seen["headers"]["Authorization"] == "Bearer test-key"
+    assert "api_key" not in seen["params"]
 
 
 def test_openalex_parser_deduplicates_by_work_doi_and_title():
