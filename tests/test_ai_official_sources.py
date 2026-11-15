@@ -188,23 +188,47 @@ def test_zhipu_cms_articles():
 
 
 def test_minimax_release_notes_markdown():
+    # Quoted-card markdown export served since 2026-10 (sample of 2026-11-15).
     markdown = """# Models
-#### Oct. 19, 2026
 
-<Card title="MiniMax M3.1 Flash" icon="file-text" href="https://www.minimax.io/blog/minimax-m31f" cta="Learn More">
-  An ultra-efficient open-weight model.
-</Card>
+> Stay updated on MiniMax's latest model releases across language, video, image, audio, and music.
+
+#### Nov. 10, 2026
+
+> [card] [MiniMax H3 Image](https://www.minimax.io/blog/minimax-h3-image)
+>
+> **A leading open-weight image model. From ideas to new worlds.**
 
 #### Apr. 2026
 
-<Card title="Music-2.6" icon="music" href="/docs/guides/music" cta="Learn More">
-  Cover Reborn.
-</Card>
+> [card] [Music-2.6](https://www.minimax.io/news/music-26)
+>
+> Cover Reborn. Bass Redefined.
+
+#### Oct. 27, 2025
+
+> [card] [MiniMax-M2](https://www.minimax.io/news/minimax-m2)
+>
+> MiniMax-M2 Released.\\
+> \\
+> &#x20;Get free MiniMax M2 model API calls now.
+
+#### Feb. 15, 2025
+
+> [card] [Image-01](https://platform.minimax.io/docs/guides/image-generation.md)
+>
+> Released the Image-01 model.
 """
     items = minimax_news.parse_release_notes(markdown)
-    assert [(i.title, i.url, i.timestamp, i.hotLabel) for i in items] == [
-        ("MiniMax M3.1 Flash", "https://www.minimax.io/blog/minimax-m31f", ms(2026, 10, 19), None),
-        ("Music-2.6", "https://platform.minimax.io/docs/guides/music", ms(2026, 4, 1), "month")]
+    assert [(i.id, i.url, i.timestamp, i.hotLabel, i.desc) for i in items] == [
+        ("20261110:MiniMax H3 Image", "https://www.minimax.io/blog/minimax-h3-image", ms(2026, 11, 10), None,
+         "A leading open-weight image model. From ideas to new worlds."),
+        ("20260401:Music-2.6", "https://www.minimax.io/news/music-26", ms(2026, 4, 1), "month",
+         "Cover Reborn. Bass Redefined."),
+        ("20251027:MiniMax-M2", "https://www.minimax.io/news/minimax-m2", ms(2025, 10, 27), None,
+         "MiniMax-M2 Released. Get free MiniMax M2 model API calls now."),
+        ("20250215:Image-01", "https://platform.minimax.io/docs/guides/image-generation", ms(2025, 2, 15), None,
+         "Released the Image-01 model.")]
 
 
 def _model(repo, created, **extra):

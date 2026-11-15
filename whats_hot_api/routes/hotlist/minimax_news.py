@@ -18,9 +18,10 @@ ROUTE_META: dict = {
     "description": 'MiniMax model and product news.',
     "link": SOURCE_LINK,
 }
-# "#### Oct. 19, 2026" (some months only: "#### Apr. 2026") followed by <Card title href>description</Card>.
+# "#### Oct. 19, 2026" (some months only: "#### Apr. 2026") followed by a quoted card (format since 2026-10):
+# "> [card] [Title](href)", then "> description" lines.
 _HEADING = re.compile(r"^#{2,4}\s+([A-Z][a-z]{2,8})\.?\s+(?:(\d{1,2}),\s+)?(\d{4})\s*$", re.M)
-_CARD = re.compile(r'<Card\s+title="([^"]+)"[^>]*?href="([^"]+)"[^>]*>(.*?)</Card>', re.S)
+_CARD = re.compile(r"^> \[card\] \[(.+?)\]\((\S+?)\)[ \t]*\n((?:>.*\n?)*)", re.M)
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001
@@ -61,11 +62,13 @@ def parse_release_notes(markdown: str) -> list[ListItem]:
         when = datetime(int(heading.group(3)), month, day, tzinfo=UTC)
         end = headings[index + 1].start() if index + 1 < len(headings) else len(markdown)
         for title, href, body in _CARD.findall(markdown[heading.end():end]):
+            href = href.removesuffix(".md")  # The markdown export links docs pages as .md.
             url = href if href.startswith("https://") else f"https://platform.minimax.io{href}"
             key = f"{when:%Y%m%d}:{title}"
             if key in items:
                 continue
-            description = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", body))).strip()
+            # Drop the quote markers, bold and line-break backslashes.
+            description = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"^>|\\$|\*\*", "", body, flags=re.MULTILINE))).strip()
             items[key] = ListItem(id=key, title=html_lib.unescape(title).strip(), url=url, mobileUrl=url,
                                   desc=description or None, timestamp=int(when.timestamp() * 1000),
                                   hotLabel=None if heading.group(2) else "month")
