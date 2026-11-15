@@ -80,7 +80,9 @@ async def _get_list(no_cache: bool) -> dict:
         cache_key=f"{_API_URL}?filter={filters}&sort={params['sort']}&per_page={_MAX_ITEMS}",
         headers={
             "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            # Keyless budgets are per client (User-Agent), shared across networks: a common browser UA shares
+            # one daily budget with everyone else using it and was exhausted from 2026-10-22 (429).
+            "User-Agent": "WhatsHot/1.0 (+https://whatshot.top)",
             # Header rather than api_key=, so the key never shows up in logged or stored error URLs.
             **({"Authorization": f"Bearer {config.OPENALEX_API_KEY}"} if config.OPENALEX_API_KEY else {}),
         },

@@ -108,7 +108,7 @@ Core API 从 `.env` 读取缓存和上游请求配置，可从 `.env.example` �
 | `SOURCE_RSSHUB_BASE_URLS` | 空 | RSSHub 实例列表 |
 | `ROUTE_PROXY` | 空 | 按域名关键词匹配的代理 JSON |
 | `ZHIHU_COOKIE` | 空 | 可选，知乎请求附带的 Cookie |
-| `OPENALEX_API_KEY` | 空 | 可选，OpenAlex 免费 key（`Authorization: Bearer` 头）；不配时与同一出口 IP 共享免费额度，额度用完返回 429 |
+| `OPENALEX_API_KEY` | 空 | 可选，OpenAlex 免费 key（`Authorization: Bearer` 头）；不配时用本路由 User-Agent（`WhatsHot/1.0`）自己的免费额度（每天约 1000 次列表请求），用完返回 429 |
 
 缓存是 Redis + 进程内 TTL 双层，Redis 不可用时自动降级为内存缓存。修改 `.env`
 后重启 `6688`。

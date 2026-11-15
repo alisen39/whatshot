@@ -52,6 +52,7 @@ async def test_openalex_fetches_latest_quality_filtered_journal_articles(monkeyp
     async def fake_get(**kwargs):  # noqa: ANN003
         assert kwargs["url"] == "https://api.openalex.org/works"
         assert "Authorization" not in kwargs["headers"]
+        assert kwargs["headers"]["User-Agent"] == "WhatsHot/1.0 (+https://whatshot.top)"  # own keyless budget
         assert kwargs["params"] == {
             "filter": (
                 "to_publication_date:2026-07-17,"
