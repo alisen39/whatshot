@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.http_client import get
 
@@ -14,6 +15,7 @@ ROUTE_META: dict = {
     "description": 'ByteDance Seed AI research and model updates.',
     "link": SOURCE_LINK,
 }
+BACKFILL = LATEST_LIST_BACKFILL
 PAGES = 2
 # Pages are filtered after paging, so a short page does not mean the end (use has_more).
 _EXCLUDED_AREAS = {"Recruitment"}

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.nextjs import flight_text, json_values
@@ -16,6 +17,7 @@ ROUTE_META: dict = {
     "description": 'Ant Group Bailing model and developer updates.',
     "link": SOURCE_LINK,
 }
+BACKFILL = LATEST_LIST_BACKFILL
 _CST = timezone(timedelta(hours=8))
 
 

@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from defusedxml import ElementTree as ET
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.http_client import get
 
@@ -19,6 +20,7 @@ ROUTE_META: dict = {
     "description": 'Official xAI product and company news.',
     "link": SOURCE_LINK,
 }
+BACKFILL = LATEST_LIST_BACKFILL
 # x.ai's WAF answers 403 to every HTTP/2 client and to non-browser User-Agents
 # (verified 2026-10-19), so both requests use HTTP/1.1 with a browser UA.
 _HEADERS = {

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.http_client import get
 from whats_hot_api.utils.nextjs import first_list
@@ -16,6 +17,7 @@ ROUTE_META: dict = {
     "description": 'Suno music AI product and company updates.',
     "link": SOURCE_LINK,
 }
+BACKFILL = LATEST_LIST_BACKFILL
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:  # noqa: ARG001

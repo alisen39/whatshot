@@ -6,6 +6,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
@@ -20,6 +21,7 @@ ROUTE_META: dict = {
     "description": "俄罗斯卫星通讯社中文网新闻时间线",
     "link": SOURCE_LINK,
 }
+BACKFILL = LATEST_LIST_BACKFILL
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:

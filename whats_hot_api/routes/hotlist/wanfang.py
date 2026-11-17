@@ -7,6 +7,7 @@ from collections.abc import Iterator
 
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import post
@@ -19,6 +20,7 @@ ROUTE_META: dict = {
     "description": "万方数据编辑发布的科技前沿文章",
     "link": "https://www.wanfangdata.com.cn/article-list/science",
 }
+BACKFILL = LATEST_LIST_BACKFILL
 
 _API_URL = (
     "https://s.wanfangdata.com.cn/"

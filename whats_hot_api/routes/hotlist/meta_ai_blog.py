@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from bs4 import BeautifulSoup
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.http_client import get
 
@@ -18,6 +19,7 @@ ROUTE_META: dict = {
     "description": 'Meta AI research and product updates.',
     "link": SOURCE_LINK,
 }
+BACKFILL = LATEST_LIST_BACKFILL
 # The ai.meta.com list is not in date order, so the first pages are merged and sorted.
 BLOG_PAGES = 3
 _DATE = re.compile(r"^[A-Z][a-z]+ \d{1,2}, \d{4}$")

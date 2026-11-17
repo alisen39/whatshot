@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import RouterData
 from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
@@ -16,6 +17,7 @@ ROUTE_META: dict = {
     "description": "Classic tech news links and reader discussion.",
     "link": SOURCE_LINK,
 }
+BACKFILL = LATEST_LIST_BACKFILL
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:

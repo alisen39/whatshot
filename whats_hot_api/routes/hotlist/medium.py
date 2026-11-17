@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from defusedxml import ElementTree as ET
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.http_client import get
 
@@ -22,6 +23,7 @@ ROUTE_META: dict = {
     "description": "Medium Technology tag's latest public articles",
     "link": SOURCE_LINK,
 }
+BACKFILL = LATEST_LIST_BACKFILL
 
 
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:

@@ -19,6 +19,7 @@ from __future__ import annotations
 from bs4 import BeautifulSoup, Tag
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
@@ -32,6 +33,7 @@ ROUTE_META: dict = {
     "description": "Science 杂志新闻频道最新报道（Latest News）",
     "link": "https://www.science.org/news",
 }
+BACKFILL = LATEST_LIST_BACKFILL
 
 _HEADERS = {
     "User-Agent": (

@@ -100,6 +100,13 @@ def snapshot(notes: str, **kwargs: Any) -> BackfillSpec:
     return BackfillSpec(strategy=BackfillStrategy.SNAPSHOT, notes=notes, **kwargs)
 
 
+# A publisher's latest articles (RSS/Atom feed or article index page) that Cloud stores item by item
+# (WhatsHot 社媒, 2026-11-17): the route reads only the current list.
+LATEST_LIST_BACKFILL: dict[str, BackfillSpec] = {
+    "*": snapshot("只读当前的最新列表（RSS/Atom 或文章列表页），路由没有翻页或按时间回溯。", verified_at="2026-11-17"),
+}
+
+
 def resolve_spec(
     declared: Mapping[str, BackfillSpec] | None,
     path_type: str,

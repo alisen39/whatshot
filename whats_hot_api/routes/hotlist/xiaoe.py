@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from starlette.requests import Request
 
+from whats_hot_api.backfill import LATEST_LIST_BACKFILL
 from whats_hot_api.models import ListItem, RouterData
 from whats_hot_api.utils.get_time import get_time
 from whats_hot_api.utils.http_client import get
@@ -19,6 +20,7 @@ ROUTE_META: dict = {
     "description": "小鹅通官方增长、运营、产品与行业实践文章",
     "link": SOURCE_LINK,
 }
+BACKFILL = LATEST_LIST_BACKFILL
 
 _API_URL = "https://sem.xiaoe-tech.com/extendRead_v2/1.0.0"
 _ARTICLE_URL = "https://sem.xiaoe-tech.com/moreNews/articleDetail-{item_id}.html"
