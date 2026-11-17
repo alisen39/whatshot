@@ -55,14 +55,32 @@ def test_flight_helpers_join_chunks_and_pick_longest_list():
     assert first_list("<html></html>", "posts") == []
 
 
-def test_suno_skips_undated_posts():
-    html = flight(json.dumps({"posts": [
-        {"title": "Introducing v6", "slug": {"current": "introducing-v6"}, "publishedAt": "2026-09-09T15:40:00Z",
-         "excerpt": "Our best model.", "tags": ["Announcements"], "author": "Team Suno"},
-        {"title": "About sidechaining", "slug": {"current": "about-sidechaining"}, "publishedAt": None}]}))
-    [item] = suno_blog.parse_posts(html)
-    assert (item.url, item.timestamp, item.hotLabel) == ("https://suno.com/blog/introducing-v6", ms(2026, 9, 9, 15, 40),
-                                                         "Announcements")
+SUNO_BLOG = """
+<article><div><a href="/blog/category/spotlights">Spotlights</a>
+  <h2><a href="/blog/behind-the-scenes">Behind the Scenes: Make what moves you</a></h2>
+  <p>Two shoots built on experimentation.</p>
+  <p><span>By <span>Team Suno</span></span><span aria-hidden="true">·</span>
+     <time datetime="2026-10-13T19:01:53.802Z">Oct 13, 2026</time></p></div></article>
+<article><a href="/blog/introducing-bridge"><div><img alt=""/></div><p>Product updates</p>
+  <h3>Suno Bridge: Your DAW, Suno-powered.</h3></a>
+  <div><p><span>By <span>Team Suno</span></span><span aria-hidden="true">·</span>
+     <time datetime="2026-11-13T14:00:00.000Z">Nov 13, 2026</time></p></div></article>
+<article><a href="/blog/introducing-bridge"><h3>Suno Bridge: Your DAW, Suno-powered.</h3></a>
+  <p><time datetime="2026-11-13T14:00:00.000Z">Nov 13, 2026</time></p></article>
+<article><a href="/blog/draft"><h3>Draft</h3></a><p>No date yet.</p></article>
+<a href="/blog/all">All posts</a>
+"""
+
+
+def test_suno_reads_post_cards():
+    items = suno_blog.parse_posts(SUNO_BLOG)
+    assert [(i.id, i.url, i.timestamp, i.hotLabel, i.author, i.desc) for i in items] == [
+        ("introducing-bridge", "https://suno.com/blog/introducing-bridge", ms(2026, 11, 13, 14),
+         "Product updates", "Team Suno", None),
+        ("behind-the-scenes", "https://suno.com/blog/behind-the-scenes", ms(2026, 10, 13, 19, 1, 53) + 802,
+         "Spotlights", "Team Suno", "Two shoots built on experimentation."),
+    ]
+    assert items[0].title == "Suno Bridge: Your DAW, Suno-powered."
 
 
 def test_runway_excludes_customer_stories():

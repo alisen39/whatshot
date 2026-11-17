@@ -84,30 +84,30 @@ async def test_v2ex_share_combines_deduplicates_and_sorts_feeds(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ghxi_parses_software_updates(monkeypatch):
-    html = """
-    <div class="sec-panel"><div class="sec-panel-body"><ul class="post-loop">
-      <li><div class="item-content">
-        <h2 class="item-title"><a href="https://www.ghxi.com/tool.html">Tool 2.0</a></h2>
-        <div class="item-excerpt">Useful desktop tool.</div>
-        <span class="date">2小时前</span>
-      </div></li>
-    </ul></div></div>
-    """
+async def test_ghxi_reads_the_category_feed_with_permalink_ids(monkeypatch):
+    xml = """<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>
+      <item><title>Tool 2.0</title><link>https://www.ghxi.com/tool.html</link>
+        <guid isPermaLink="false">https://www.ghxi.com/?p=123</guid>
+        <pubDate>Tue, 17 Nov 2026 09:14:57 +0000</pubDate>
+        <description><![CDATA[<p>Useful desktop tool.</p>]]></description></item>
+    </channel></rss>"""
+    requested = {}
 
-    async def fake_get(**kwargs):  # noqa: ANN003, ARG001
-        return RequestResult(False, "ghxi-update", html)
+    async def fake_get(**kwargs):  # noqa: ANN003
+        requested.update(kwargs)
+        return RequestResult(False, "ghxi-update", xml)
 
     monkeypatch.setattr(ghxi, "get", fake_get)
 
     route_data = await ghxi.handle_route(_request())
-    item = route_data.data[0]
+    [item] = route_data.data
 
+    assert requested["url"] == "https://www.ghxi.com/category/all/feed"
     assert route_data.name == "ghxi"
     assert route_data.type == "软件更新"
-    assert item.title == "Tool 2.0"
-    assert item.desc == "Useful desktop tool."
-    assert item.timestamp is not None
+    assert (item.id, item.url, item.title, item.desc) == (
+        "https://www.ghxi.com/tool.html", "https://www.ghxi.com/tool.html", "Tool 2.0", "Useful desktop tool.")
+    assert item.timestamp == 1794906897000
 
 
 @pytest.mark.asyncio
