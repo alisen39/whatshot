@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,6 +16,8 @@ from starlette.requests import Request
 
 from whats_hot_api.routes.hotlist import zaobao
 from whats_hot_api.utils.http_client import RequestResult
+
+_ROUTER_PAGE = (Path(__file__).parent / "fixtures" / "zaobao-react-router-section.html").read_text()
 
 _SGT = timezone(timedelta(hours=8))
 _UPDATE_TIME = "2026-09-28T00:00:00+00:00"
@@ -209,6 +212,57 @@ async def test_unknown_type_is_rejected(monkeypatch):
     monkeypatch.setattr(zaobao, "get", fake_get)
     with pytest.raises(ValueError, match="Unknown board"):
         await zaobao.handle_route(_request("global"), no_cache=True)
+
+
+@pytest.mark.parametrize("board_type", list(zaobao._BOARDS))
+async def test_new_section_payload_restores_every_board(monkeypatch, board_type):
+    """11-17 公开 HTML 载荷的最小摘录；新版没有 article，时间在 loader 中。"""
+    page = _ROUTER_PAGE.replace('\\"section\\"', '\\"keywords\\"') if board_type == "xia-wu-cha" else _ROUTER_PAGE
+    calls = []
+
+    async def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return _ok(page)
+
+    monkeypatch.setattr(zaobao, "get", fake_get)
+    result = await zaobao.handle_route(_request(board_type), no_cache=True)
+    assert result.total == 2
+    assert result.type == zaobao.type_map[board_type]
+    assert result.fromCache is False
+    assert result.updateTime == _UPDATE_TIME
+    first, second = result.data
+    assert first.id == "/news/china/story20261117-10012301"
+    assert first.title == "美国加码晶片出口管制 北京批长臂管辖扰乱全球产供链"
+    assert first.timestamp == 1794903125000
+    assert first.cover is None
+    assert second.cover.startswith("https://cassette.sphdigital.com.sg/image/zaobao/")
+    assert first.url == f"https://www.zaobao.com{first.id}"
+    assert result.message is None
+    assert calls == [(f"https://www.zaobao.com/{zaobao._BOARDS[board_type][1]}", {
+        "headers": zaobao._HEADERS, "no_cache": True, "response_type": "text",
+    })]
+
+
+@pytest.mark.parametrize("page", [
+    _ROUTER_PAGE.replace('\\"statusCode\\"', '\\"upstreamError\\"'),
+    _ROUTER_PAGE.replace('\\"articles\\"', '\\"renamedArticles\\"'),
+    '<main><script>window.__reactRouterContext.streamController.enqueue("not JSON");</script></main>',
+    '<main><script>window.__reactRouterContext.streamController.enqueue("[{\\\"_1\\\":0},\\\"cycle\\\"]");</script></main>',
+])
+async def test_new_payload_errors_do_not_fall_back_to_sidebar(monkeypatch, page):
+    _stub_upstream(monkeypatch, page)
+    with pytest.raises(RuntimeError, match="React Router section payload changed"):
+        await zaobao.handle_route(_request(), no_cache=True)
+
+
+async def test_section_keeps_video_story_cards_and_excludes_ads(monkeypatch):
+    page = _ROUTER_PAGE.replace('\\"article\\"', '\\"video\\"', 1)
+    _stub_upstream(monkeypatch, page)
+    result = await zaobao.handle_route(_request("news-world"))
+    assert result.total == 2
+    assert result.data[0].id == "/news/china/story20261117-10012301"
+    _stub_upstream(monkeypatch, page.replace('\\"video\\"', '\\"advertisement\\"', 1))
+    assert (await zaobao.handle_route(_request("news-world"))).total == 1
 
 
 def test_board_table_matches_board_api():

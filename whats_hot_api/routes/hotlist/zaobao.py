@@ -1,4 +1,10 @@
-"""联合早报栏目(www.zaobao.com 服务端渲染的 Astro 页面,公开、无签名、无 cookie)。
+"""联合早报公开栏目,无需签名或账号 cookie。
+
+2026-11-17 修复：原栏目地址现跳转到 www.zaobao.com.sg 的 React Router 页面，
+不再包含 <article>。从公开 HTML 的 loaderData.section/keywords.payload.articles
+读取同一批首屏卡片及其精确发布时间；只解 JSON 引用表，不执行页面脚本。
+保留下述旧 Astro 解析，兼容仍返回旧页面的地区/缓存。证据见工作区
+reports/20261117-seo-five-pages/zaobao/source-spec.json（10 个栏目各两次独立重放）。
 
 board_api 单元 `tmp/board_api/zaobao_channels` 的 1:1 迁移(EXTEND+REPAIR),证据见该目录
 README 与 `analysis_report.md`、`verify/whatshot_rule_check.txt`、`verify/timestamp_check.log`。
@@ -84,6 +90,7 @@ _SHOWN_CLOCK = re.compile(r"(\d{1,2}):(\d{2})")
 _SHOWN_AGO = re.compile(r"(\d+)\s*(分钟|小时)前")
 # 详情页 JSON-LD:"2026-09-28T07:02:34+08:00"
 _DATE_PUBLISHED = re.compile(r'"datePublished"\s*:\s*"([^"]+)"')
+_ROUTER_CHUNK = re.compile(r'streamController\.enqueue\(("(?:[^"\\]|\\.)*")\)')
 
 # header_check 实测浏览器 UA / curl UA / 无 UA / python-httpx UA 都返回 200 且字节数相同,
 # 请求头非必需;旧路由就带 UA,这里保持带浏览器 UA 的口径
@@ -181,6 +188,81 @@ def _island_seconds(main: Tag) -> dict[str, int]:
     return seconds_map
 
 
+def _router_value(table: list[Any], index: int, depth: int = 0) -> Any:
+    """解开本栏目使用的 JSON 引用表；限制深度并拒绝未知引用，不执行 JS。"""
+    if index == -5:  # undefined，顶层 actionData/errors 使用
+        return None
+    if type(index) is not int or not 0 <= index < len(table) or depth > 20:
+        raise ValueError("invalid React Router reference")
+    value = table[index]
+    if isinstance(value, dict):
+        result = {}
+        for key, ref in value.items():
+            if not re.fullmatch(r"_\d+", key):
+                raise ValueError("invalid React Router object key")
+            name = _router_value(table, int(key[1:]), depth + 1)
+            if not isinstance(name, str):
+                raise TypeError("invalid React Router field name")
+            result[name] = _router_value(table, ref, depth + 1)
+        return result
+    if isinstance(value, list):
+        return [_router_value(table, ref, depth + 1) for ref in value]
+    return value
+
+
+def _router_items(soup: BeautifulSoup) -> list[ListItem] | None:
+    """新版栏目首屏 payload；没有新版标记时交回 Astro 解析。"""
+    for script in soup.select("script"):
+        text = script.get_text()
+        if "streamController.enqueue(" not in text:
+            continue
+        try:
+            match = _ROUTER_CHUNK.search(text)
+            table = json.loads(json.loads(match.group(1))) if match else None
+            if not isinstance(table, list) or not table:
+                raise ValueError("missing reference table")
+            data = _router_value(table, 0)
+            loaders = data.get("loaderData", {}) if isinstance(data, dict) else {}
+            section = loaders.get("section") or loaders.get("keywords")
+            if not isinstance(section, dict) or section.get("statusCode") != 200:
+                raise ValueError("section loader did not succeed")
+            payload = section.get("payload")
+            rows = payload.get("articles") if isinstance(payload, dict) else None
+            if not isinstance(rows, list):
+                raise TypeError("missing section articles")
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise RuntimeError("zaobao React Router section payload changed") from exc
+
+        items: list[ListItem] = []
+        seen: set[str] = set()
+        for row in rows:
+            if not isinstance(row, dict) or row.get("item_type") not in {"article", "video"}:
+                continue
+            href, title = row.get("href"), row.get("title")
+            if not isinstance(href, str) or not isinstance(title, str):
+                raise TypeError("zaobao section article is missing title or href")
+            path = href.split("?")[0]
+            title = _clean_text(title)
+            if not path.startswith("/") or path.startswith("//") or "/story" not in path or not title:
+                raise RuntimeError("zaobao section article has invalid title or href")
+            if path in seen:
+                continue
+            seen.add(path)
+            cover = row.get("thumbnail")
+            timestamp = row.get("timestamp")
+            url = urljoin(WWW, path)
+            items.append(ListItem(
+                id=path,
+                title=title,
+                url=url,
+                mobileUrl=url,
+                cover=cover if isinstance(cover, str) and cover.startswith(("http://", "https://")) else None,
+                timestamp=get_time(timestamp) if type(timestamp) is int and timestamp > 0 else None,
+            ))
+        return items
+    return None
+
+
 def _parse_list(html: str, now: datetime) -> tuple[list[ListItem], set[str]]:
     """解析栏目页:<main> 里的 <article> 卡片(先去掉侧栏"热门"HotNews 岛)。
     返回 (条目, 时间来自相对时间估计的条目 id)。"""
@@ -188,6 +270,8 @@ def _parse_list(html: str, now: datetime) -> tuple[list[ListItem], set[str]]:
     main = soup.select_one("main")
     if not isinstance(main, Tag):
         raise RuntimeError("zaobao page has no <main> (page structure changed)")  # noqa: TRY004 - 上游结构漂移是路由级错误
+    if (items := _router_items(soup)) is not None:
+        return items, set()
     # 侧栏"热门"是 HotNews 岛(20 条全站热门),不是本栏目列表
     for island in main.select("astro-island"):
         if "HotNews" in str(island.get("component-url") or ""):
