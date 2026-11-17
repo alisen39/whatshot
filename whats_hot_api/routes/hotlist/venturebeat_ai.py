@@ -8,8 +8,10 @@ from whats_hot_api.utils.feed import parse_feed
 from whats_hot_api.utils.http_client import get
 
 ROUTE_NAME = 'venturebeat-ai'
-SOURCE_LINK = 'https://venturebeat.com/category/ai/'
-FEED_URL = 'https://venturebeat.com/category/ai/feed/'
+SOURCE_LINK = 'https://venturebeat.com/'
+# Since its 2026-09 redesign the site has no /category/ai/ and answers every feed request with a
+# Vercel challenge (429); the FeedBurner copy stopped on 2026-09-03.
+FEED_URL = 'https://news.google.com/rss/search?q=site%3Aventurebeat.com%20AI&hl=en-US&gl=US&ceid=US%3Aen'
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": 'VentureBeat · AI',

@@ -9,7 +9,9 @@ from whats_hot_api.utils.http_client import get
 
 ROUTE_NAME = 'cult-of-mac'
 SOURCE_LINK = 'https://www.cultofmac.com/'
-FEED_URL = 'https://www.cultofmac.com/feed/'
+# The site's own feed (/feed/) answers our server with a Cloudflare managed challenge (403,
+# cf-mitigated: challenge) since 2026-08; its FeedBurner address now serves an unrelated page.
+FEED_URL = 'https://news.google.com/rss/search?q=site%3Acultofmac.com&hl=en-US&gl=US&ceid=US%3Aen'
 ROUTE_META: dict = {
     "name": ROUTE_NAME,
     "title": 'Cult of Mac',
