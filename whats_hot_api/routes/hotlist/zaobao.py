@@ -236,7 +236,7 @@ def _router_items(soup: BeautifulSoup) -> list[ListItem] | None:
         items: list[ListItem] = []
         seen: set[str] = set()
         for row in rows:
-            if not isinstance(row, dict) or row.get("item_type") not in {"article", "video"}:
+            if not isinstance(row, dict) or row.get("item_type") not in {"article", "video", "podcast"}:
                 continue
             href, title = row.get("href"), row.get("title")
             if not isinstance(href, str) or not isinstance(title, str):

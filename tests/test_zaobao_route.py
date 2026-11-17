@@ -255,13 +255,14 @@ async def test_new_payload_errors_do_not_fall_back_to_sidebar(monkeypatch, page)
         await zaobao.handle_route(_request(), no_cache=True)
 
 
-async def test_section_keeps_video_story_cards_and_excludes_ads(monkeypatch):
-    page = _ROUTER_PAGE.replace('\\"article\\"', '\\"video\\"', 1)
+@pytest.mark.parametrize("media_kind", ["video", "podcast"])
+async def test_section_keeps_media_story_cards_and_excludes_ads(monkeypatch, media_kind):
+    page = _ROUTER_PAGE.replace('\\"article\\"', f'\\"{media_kind}\\"', 1)
     _stub_upstream(monkeypatch, page)
     result = await zaobao.handle_route(_request("news-world"))
     assert result.total == 2
     assert result.data[0].id == "/news/china/story20261117-10012301"
-    _stub_upstream(monkeypatch, page.replace('\\"video\\"', '\\"advertisement\\"', 1))
+    _stub_upstream(monkeypatch, page.replace(f'\\"{media_kind}\\"', '\\"advertisement\\"', 1))
     assert (await zaobao.handle_route(_request("news-world"))).total == 1
 
 
