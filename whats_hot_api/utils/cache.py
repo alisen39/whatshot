@@ -34,12 +34,15 @@ class _MemoryEntry:
 
 class DualCache:
     _max_memory_size = 100
+    _redis_retry_seconds = 30
 
     def __init__(self) -> None:
         self._memory: OrderedDict[str, _MemoryEntry] = OrderedDict()
         self._redis: aioredis.Redis | None = None  # type: ignore[name-defined]
         self._redis_available = False
         self._redis_tried = False
+        # After a failed ping, the next attempt waits until this monotonic time; inf = no retry.
+        self._redis_retry_at = float("inf")
 
     def _resolve_ttl(self, ttl: int | None) -> int:
         return config.CACHE_TTL if ttl is None else ttl
@@ -76,26 +79,29 @@ class DualCache:
             self._memory.popitem(last=False)
 
     async def _ensure_redis(self) -> None:
-        if self._redis_tried:
+        if self._redis_tried and monotonic() < self._redis_retry_at:
             return
         self._redis_tried = True
+        self._redis_retry_at = float("inf")
         if aioredis is None:
             return
         if not config.REDIS_HOST:
             return
         try:
-            self._redis = aioredis.Redis(
-                host=config.REDIS_HOST,
-                port=config.REDIS_PORT,
-                password=config.REDIS_PASSWORD or None,
-                db=config.REDIS_DB,
-                decode_responses=False,
-            )
+            if self._redis is None:
+                self._redis = aioredis.Redis(
+                    host=config.REDIS_HOST,
+                    port=config.REDIS_PORT,
+                    password=config.REDIS_PASSWORD or None,
+                    db=config.REDIS_DB,
+                    decode_responses=False,
+                )
             await asyncio.wait_for(self._redis.ping(), timeout=2)
             self._redis_available = True
             logger.info("📦 [Redis] connected successfully.")
         except Exception as e:
             self._redis_available = False
+            self._redis_retry_at = monotonic() + self._redis_retry_seconds
             logger.error(f"📦 [Redis] connection failed: {e}")
 
     async def get(self, key: str) -> CacheData | None:
