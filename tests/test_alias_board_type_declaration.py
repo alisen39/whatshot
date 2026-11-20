@@ -27,18 +27,11 @@ def _service_for(route_module) -> FetchService:
 async def test_declared_board_type_reaches_route(monkeypatch, route_module, path_type) -> None:
     observed: dict[str, object] = {}
 
-    if route_module is kr36_news:
-        async def fake_fetch(**kwargs):
-            observed["no_cache"] = kwargs["no_cache"]
-            return {"from_cache": False, "update_time": "2026-09-14T00:00:00+00:00", "data": []}
+    async def fake_get_list(no_cache: bool) -> dict:
+        observed["no_cache"] = no_cache
+        return {"from_cache": False, "update_time": "2026-09-14T00:00:00+00:00", "data": []}
 
-        monkeypatch.setattr(kr36_news, "fetch_rsshub_feed", fake_fetch)
-    else:
-        async def fake_get_list(no_cache: bool) -> dict:
-            observed["no_cache"] = no_cache
-            return {"from_cache": False, "update_time": "2026-09-14T00:00:00+00:00", "data": []}
-
-        monkeypatch.setattr(route_module, "_get_list", fake_get_list)
+    monkeypatch.setattr(route_module, "_get_list", fake_get_list)
 
     result = await _service_for(route_module).fetch(
         FetchRequest(site=route_module.ROUTE_NAME, path_type=path_type)

@@ -124,7 +124,6 @@ NATIVE_PROTOCOL_ROUTES = [('indiehackers', 'indiehackers', 'rss'),
  ('science_alert', 'science-alert', 'rss'),
  ('zhihu_hot', 'zhihu-hot', 'rsshub'),
  ('ithome_ranking_24h', 'ithome-ranking-24h', 'rsshub'),
- ('kr36_news', '36kr-news', 'rsshub'),
  ('appinn', 'appinn', 'rss')]
 RSS_SAMPLE = """<?xml version="1.0"?><rss><channel><item><guid>sample</guid><title>Sample</title><link>https://example.com/sample</link></item></channel></rss>"""
 
