@@ -158,6 +158,8 @@ async def test_csdnnews_board_parses_rss(monkeypatch):
 async def test_headlines_parses_home_block_in_order(monkeypatch):
     async def fake_get(url, headers=None, no_cache=None, response_type="text", **kwargs):
         assert url == "https://www.csdn.net/"
+        # 不带浏览器 UA 时生产出口返回 521
+        assert "Chrome/" in headers["User-Agent"]
         return RequestResult(False, "t", _HOME_HTML)
 
     monkeypatch.setattr(csdn_rank, "get", fake_get)

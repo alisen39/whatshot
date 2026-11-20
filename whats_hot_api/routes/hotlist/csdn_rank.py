@@ -69,7 +69,12 @@ _AUTHOR_PAGE = 1
 
 _JSON_HEADERS = {"Accept": "application/json, text/plain, */*"}
 _RSS_HEADERS = {"Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8"}
-_HTML_HEADERS = {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
+# 首页对 httpx 缺省 UA 返回 521 加 JS 验证脚本（生产出口），要带浏览器 UA
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+)
+_HTML_HEADERS = {"User-Agent": _BROWSER_UA, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
 
 
 def _rank_page_link(channel: str) -> str:
