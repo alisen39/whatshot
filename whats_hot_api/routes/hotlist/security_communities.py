@@ -8,9 +8,8 @@
   （``filter=author&orderby=dateline``，按发帖时间）。版块页照原站页面顺序输出：
   先置顶帖（``tbody[id^=stickthread_]``，desc 标"置顶"），再普通主题（normalthread_）。
   帖子链接统一成 ``thread-<tid>-1-1.html``（页面里还有 ``forum.php?mod=viewthread&tid=…`` 形式）。
-  站点前面有 WAF（wzws），会间歇地把请求 302 到滑块验证页：按 board_api 决定只用
-  项目缺省 Chrome UA，遇到滑块页（正文有 ``wzws-waf-cgi`` / ``waf_slider``）直接报错，
-  不重试、不换 UA、不执行验证脚本。tophub「最新帖子」与导读「最新发表」是同一份列表，
+  固定用 52pojie 路由同一个手机 UA（桌面 UA 会拿到混淆 JS 验证页）；遇到 wzws 滑块页或 JS 验证页
+  直接报错，不重试、不轮换 UA、不执行验证脚本。tophub「最新帖子」与导读「最新发表」是同一份列表，
   whatshot /52pojie/newthread 已支持，本路由不再提供
 - 先知社区（xz.aliyun.com）2 个榜：
   「最新」取官方 Atom ``/feed``（标题"先知安全技术社区"，100 条，按文章 id 倒序，照 feed 原顺序）。
@@ -24,8 +23,8 @@
   发布时间，所以取接口。业务壳是 ``{"code": "10000", data: [...]}``，其他 code 按业务错误报错
 
 看雪「最新精华」要登录（new-digest.htm 访客只有"请先登录"，/rss.htm 404），不迁（board_api README）。
-请求头照 board_api 证据：全部站点用项目缺省 Chrome UA + Accept-Language；先知精选 ajax 另带
-X-Requested-With；吾爱破解限速 3 秒/次由部署侧保障（路由层无状态，不做进程内限速）。
+请求头照 board_api 证据：全部站点带 Accept-Language，先知、安全内参用项目缺省 Chrome UA（吾爱破解见上）；
+先知精选 ajax 另带 X-Requested-With；吾爱破解限速 3 秒/次由部署侧保障（路由层无状态，不做进程内限速）。
 """
 
 from __future__ import annotations
@@ -66,8 +65,7 @@ ROUTE_META: dict = {
 
 _HTML_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 _JSON_ACCEPT = "application/json, text/plain, */*"
-# board_api 证据的全部请求都带这组客户端头（common.http.DEFAULT_HEADERS）；
-# 吾爱破解 WAF 间歇出滑块时任何 UA 都拦（不换 UA）
+# board_api 证据的全部请求都带这组客户端头（common.http.DEFAULT_HEADERS）
 _BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
@@ -85,6 +83,15 @@ _POJIE_PAGES: dict[str, tuple[str, str]] = {
     "52pojie-software": (_POJIE + "forum.php?mod=forumdisplay&fid=16&filter=author&orderby=dateline", "threadlist"),
 }
 _POJIE_TOPLIST_COLUMN = "人气热门"
+# 与 52pojie 路由同一个手机 UA，固定使用
+_POJIE_HEADERS = {
+    **_BASE_HEADERS,
+    "User-Agent": (
+        "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+    ),
+    "Accept": _HTML_ACCEPT,
+}
 
 # ---------------------------------------------------------------- 先知社区
 
@@ -150,10 +157,16 @@ def _gbk_text(result: RequestResult) -> str:
     text = result.data.decode("gb18030", "replace") if isinstance(result.data, bytes) else str(result.data)
     if "wzws-waf-cgi" in text or "waf_slider" in text or "请完成安全验证" in text:
         # WAF 间歇把请求 302 到滑块验证页（follow_redirects 后拿到的是 200 的滑块页）。
-        # 按 board_api 决定：不重试、不换 UA、不执行验证脚本，这次取不到就稍后再运行
+        # 不重试、不轮换 UA、不执行验证脚本，这次取不到就稍后再运行
         raise RuntimeError(
             "52pojie returned the wzws WAF slider verification page (intermittent), "
             "not retrying or switching UA per board_api decision"
+        )
+    if "Please enable JavaScript and refresh the page" in text:
+        # 桌面 UA 会拿到的混淆 JS 验证页（WAF），同样直接报错
+        raise RuntimeError(
+            "52pojie returned the WAF JavaScript verification page, "
+            "not retrying, switching UA or executing the script"
         )
     return text
 
@@ -204,7 +217,7 @@ async def _get_52pojie(board: str, no_cache: bool) -> dict:
     url, kind = _POJIE_PAGES[board]
     result = await get(
         url=url,
-        headers={**_BASE_HEADERS, "Accept": _HTML_ACCEPT},
+        headers=_POJIE_HEADERS,
         no_cache=no_cache,
         response_type="arraybuffer",  # 字节流自己按 GBK 解码，不依赖响应头 charset
         cache_key=f"{ROUTE_NAME}:{board}",

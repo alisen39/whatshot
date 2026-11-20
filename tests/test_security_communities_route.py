@@ -72,6 +72,9 @@ async def test_52pojie_hot_maps_toplist_column_and_tips(monkeypatch):
     result = await route.handle_route(_request("52pojie-hot"), no_cache=True)
 
     assert captured["url"] == "https://www.52pojie.cn/"
+    # 固定用 52pojie 路由的手机 UA：桌面 UA 会拿到 JS 验证页
+    assert "Android" in captured["headers"]["User-Agent"]
+    assert "Mobile Safari" in captured["headers"]["User-Agent"]
     assert captured["kwargs"]["response_type"] == "arraybuffer"  # GBK 页面自己解码
     assert captured["no_cache"] is True
     first = result.data[0]
@@ -156,6 +159,21 @@ async def test_52pojie_waf_slider_page_is_rejected_without_retry(monkeypatch):
     monkeypatch.setattr(route, "get", _fake_get(slider.encode("utf-8")))
     with pytest.raises(RuntimeError, match="WAF slider"):
         await route.handle_route(_request("52pojie-hot"), no_cache=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("board", ["52pojie-hot", "52pojie-today-heats", "52pojie-original", "52pojie-software"])
+async def test_52pojie_js_verification_page_is_rejected_as_waf(monkeypatch, board):
+    # 桌面 UA 拿到的混淆 JS 验证页：正文只有 noscript 提示和一段混淆脚本（结构照 11-21 实测，脚本截短）
+    page = (
+        '<!DOCTYPE HTML><html><head><meta charset="utf-8"></head><body>'
+        "<noscript><h1><strong>Please enable JavaScript and refresh the page.</strong></h1></noscript>"
+        '<script type="text/javascript">function u(D,o){var s=b();return u=function(q,R){q=q-0x1ba2;};}</script>'
+        "</body></html>"
+    )
+    monkeypatch.setattr(route, "get", _fake_get(page.encode("utf-8")))
+    with pytest.raises(RuntimeError, match="WAF JavaScript verification page"):
+        await route.handle_route(_request(board), no_cache=True)
 
 
 @pytest.mark.asyncio
