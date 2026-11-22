@@ -9,7 +9,7 @@
 
 [在线体验](https://whatshot.top) · [三分钟上手](#三分钟上手) · [支持哪些网站](#支持哪些网站) · [常见问题](#常见问题) · [开发者文档](#开发者文档)
 
-![License](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.12%2B-blue) ![Sources](https://img.shields.io/badge/sources-400%2B-orange)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE) ![Python](https://img.shields.io/badge/python-3.12%2B-blue) ![Sources](https://img.shields.io/badge/sources-400%2B-orange)
 
 <a href="https://whatshot.top/"><img src="docs/images/whatshot-web.png" alt="WhatsHot 网页版首页：顶栏有首页、热点、热榜、快讯、社媒、金价，下方是平台与榜单数量和各平台正在上榜的热搜" width="880"></a>
 
@@ -169,4 +169,4 @@ GitHub、纽约时报等部分海外来源在国内网络需要代理，可以�
 
 ## License
 
-[MIT](https://opensource.org/license/mit)。第三方代码授权说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+[MIT](LICENSE)。第三方代码授权说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
