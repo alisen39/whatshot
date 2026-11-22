@@ -20,6 +20,12 @@ ROUTE_NAME = "cctv-xinwenlianbo"
 
 SOURCE_LINK = "https://tv.cctv.com/lm/xwlb/"
 _DAY_PATTERN = re.compile(r"^\d{8}$")
+_EPISODE_DAY = re.compile(r"\d{8}")
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "text/html,application/xhtml+xml",
+    "Referer": SOURCE_LINK,
+}
 
 ROUTE_META: dict[str, Any] = {
     "name": ROUTE_NAME,
@@ -32,7 +38,7 @@ ROUTE_META: dict[str, Any] = {
 async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     requested_day = request.query_params.get("day")
     explicit_day = requested_day if requested_day and _DAY_PATTERN.fullmatch(requested_day) else None
-    day = explicit_day or _today()
+    day = explicit_day or await _latest_day(no_cache) or _today()
     list_data = await _get_day(day, no_cache)
     if not explicit_day and not list_data["data"]:
         day = _previous_day(day)
@@ -48,6 +54,22 @@ async def handle_route(request: Request, no_cache: bool = False) -> RouterData:
     )
 
 
+async def _latest_day(no_cache: bool) -> str | None:
+    # 最新一期取栏目首页“完整版”条目标题里的日期；当天节目单发布前今天的日期页是 404，
+    # 生产经过的 CDN 节点 20 多秒才回 404，会先超时。
+    result = await get(
+        url=SOURCE_LINK,
+        no_cache=no_cache,
+        ttl=config.NEWSFLASH_CACHE_TTL,
+        response_type="text",
+        headers=_HEADERS,
+    )
+    soup = BeautifulSoup(result.data or "", "lxml")
+    full_episode = soup.select_one("li a:has(> .sql0)")
+    match = _EPISODE_DAY.search(full_episode.get_text()) if full_episode else None
+    return match.group() if match else None
+
+
 async def _get_day(day: str, no_cache: bool) -> dict[str, Any]:
     page_url = f"https://tv.cctv.com/lm/xwlb/day/{day}.shtml"
     try:
@@ -56,11 +78,7 @@ async def _get_day(day: str, no_cache: bool) -> dict[str, Any]:
             no_cache=no_cache,
             ttl=config.NEWSFLASH_CACHE_TTL,
             response_type="text",
-            headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "text/html,application/xhtml+xml",
-                "Referer": SOURCE_LINK,
-            },
+            headers=_HEADERS,
         )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
